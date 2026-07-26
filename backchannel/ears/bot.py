@@ -448,6 +448,46 @@ def enable_captions(page):
         return False
 
 
+def login_mode(user_data_dir):
+    """Open the bot's OWN browser profile on Google sign-in and let the human
+    log in manually. Google refuses anonymous knockers on meetings hosted by
+    personal accounts - a signed-in bot gets a lobby like anyone else. The
+    session persists in the profile; this only ever needs doing once."""
+    auth_profile = user_data_dir + "-auth"
+    print("  [bot] LOGIN MODE - a browser will open on Google sign-in.")
+    print("        1. Sign in with any Google account (a personal one is fine).")
+    print("        2. When you see your account avatar, CLOSE the browser window.")
+    print("        The session is saved; future joins will knock as that account.")
+    with sync_playwright() as p:
+        kwargs = dict(
+            headless=False,
+            ignore_default_args=["--enable-automation"],
+            args=["--disable-blink-features=AutomationControlled"],
+            viewport={"width": 1100, "height": 800},
+        )
+        try:
+            ctx = p.chromium.launch_persistent_context(
+                auth_profile, channel="chrome", **kwargs)
+        except Exception:
+            ctx = p.chromium.launch_persistent_context(auth_profile, **kwargs)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        try:
+            page.goto("https://accounts.google.com/", timeout=60000)
+        except Exception:
+            pass
+        try:
+            while len(ctx.pages) > 0:
+                time.sleep(2)
+        except Exception:
+            pass
+        try:
+            ctx.close()
+        except Exception:
+            pass
+    print("  [bot] login profile saved - relaunch the bot normally now.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="Backchannel Google Meet capture bot")
     ap.add_argument("--meet-url", required=True)
@@ -463,7 +503,15 @@ def main():
     )
     ap.add_argument("--no-chat", action="store_true",
                     help="don't post answers into the Meet chat")
+    ap.add_argument("--login", action="store_true",
+                    help="open a browser to sign the bot into a Google account "
+                         "ONCE (needed to join meetings hosted by personal "
+                         "Gmail accounts, which block anonymous guests). Sign "
+                         "in, then close the window.")
     args = ap.parse_args()
+
+    if args.login:
+        return login_mode(args.user_data_dir)
 
     sender = BrainSender(args.brain, args.series)
     sender.start()
@@ -480,9 +528,11 @@ def main():
             # Launch flags mirror what keeps Attendee's bots unblocked:
             # exclude Chromium's --enable-automation default (the loudest
             # automation tell), fake mic/cam DEVICE + auto-granted permission
-            # prompts, no autoplay gesture requirement.
-            return p.chromium.launch_persistent_context(
-                profile_dir,
+            # prompts, no autoplay gesture requirement. Prefer the REAL
+            # installed Google Chrome (channel="chrome") - Attendee drives
+            # real Chrome too, and Playwright's bundled "Chrome for Testing"
+            # build is itself a fingerprint.
+            kwargs = dict(
                 headless=False,
                 ignore_default_args=["--enable-automation"],
                 args=[
@@ -494,15 +544,29 @@ def main():
                 permissions=["microphone", "camera"],
                 viewport={"width": 1280, "height": 800},
             )
+            try:
+                return p.chromium.launch_persistent_context(
+                    profile_dir, channel="chrome", **kwargs)
+            except Exception as exc:
+                print(f"  [bot] real Chrome unavailable ({exc.__class__.__name__}) - using bundled browser")
+                return p.chromium.launch_persistent_context(profile_dir, **kwargs)
 
-        # Google's "You can't join this video call" wall is usually transient:
-        # a fresh browser (fresh profile) often sails through. Three attempts.
+        # Attempt order: the signed-in profile first when it exists (personal-
+        # account meetings hard-block anonymous browsers - see --login), then
+        # fresh anonymous profiles, since the wall is sometimes just transient.
+        auth_profile = args.user_data_dir + "-auth"
+        profiles = []
+        if os.path.isdir(auth_profile):
+            profiles.append(("signed-in", auth_profile))
+        profiles += [(f"anon-{i}", f"{args.user_data_dir}-{i}") for i in (1, 2, 3)]
+
         ctx = None
         page = None
         status = ""
-        for attempt in range(1, 4):
-            profile_dir = f"{args.user_data_dir}-{attempt}"
-            shutil.rmtree(profile_dir, ignore_errors=True)
+        for attempt, (kind, profile_dir) in enumerate(profiles, 1):
+            print(f"  [bot] join attempt {attempt} ({kind})")
+            if kind != "signed-in":
+                shutil.rmtree(profile_dir, ignore_errors=True)
             ctx = launch(profile_dir)
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             page.expose_function("emitCaption", on_caption)
