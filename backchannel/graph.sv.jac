@@ -30,6 +30,7 @@ node Session {
         summary: str = "",
         summary_seq: int = 0,
         summary_updated_at: float = 0.0,
+        last_answer_ms: int = 0,
         next_seq: int = 0;
 }
 
@@ -42,7 +43,8 @@ node Utterance {
         caption_id: str = "",
         version: int = 0,
         seq: int = 0,
-        ts_ms: int = 0;
+        ts_ms: int = 0,
+        wake_done: bool = False;
 }
 
 

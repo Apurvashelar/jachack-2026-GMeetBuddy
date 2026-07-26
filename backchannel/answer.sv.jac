@@ -22,6 +22,11 @@ import from workspace { read_context_file, append_context_file }
 glob SUMMARY_EVERY: int = 6;
 glob TRANSCRIPT_WINDOW: int = 60;
 
+# After Backchannel speaks, its own voice comes back through the room mic and
+# Meet captions it. Ignore wake phrases for this long afterwards so the bot
+# cannot answer itself. (Headphones also fix it; this makes speakers safe.)
+glob ECHO_GUARD_MS: int = 12000;
+
 
 """Walk a session's utterances into a plain transcript string."""
 def transcript_of(session: Session, limit: int) -> str {
@@ -275,6 +280,9 @@ def handle_wake(session: Session, ask: str, seq: int, said: str) -> dict[any] {
     if ask.strip() == "" {
         return {"kind": "ignored", "reason": "empty ask"};
     }
+    if now_ms() - session.last_answer_ms < ECHO_GUARD_MS {
+        return {"kind": "ignored", "reason": "echo guard - bot just spoke"};
+    }
 
     routed = safe_route(ask);
 
@@ -285,10 +293,12 @@ def handle_wake(session: Session, ask: str, seq: int, said: str) -> dict[any] {
     payload = routed.payload if routed.payload.strip() != "" else ask;
 
     if routed.intent == Intent.ACTION {
+        session.last_answer_ms = now_ms();
         session spawn ExecuteAction(payload=payload, quote=said, asked_seq=seq);
         return {"kind": "action", "payload": payload};
     }
 
+    session.last_answer_ms = now_ms();
     session spawn AnswerQuestion(question=payload, asked_seq=seq);
     return {"kind": "answer", "question": payload};
 }

@@ -20,8 +20,11 @@ import from adapters { fetch_repo_docs }
 import from botctl { bot_running, bot_log_tail }
 
 
+# Ordered LONGEST FIRST. "hey jac" is a prefix of "hey jack", so a short-first
+# scan would match "hey jac" inside "Hey Jack, how are you?" and leave the ask
+# as "k, how are you?" - which is exactly the bug this ordering prevents.
 glob WAKE_PHRASES: list[str] = [
-    "hey jac", "hey jack", "hey jak", "hey jacques", "hey check", "a jack"
+    "hey jacques", "hey jack", "hey check", "hey jac", "hey jak", "a jack"
 ];
 
 """Deterministic wake-phrase detector.
@@ -83,6 +86,7 @@ walker:pub IngestChunk {
         version: int = 0,
         ts_ms: int = 0,
         source: str = "replay",
+        final: bool = True,
         reports: list[dict[any]] = [];
 
     can at_root with Root entry {
@@ -130,11 +134,17 @@ walker:pub IngestChunk {
 
         # The trigger path: a lowercase substring scan. Zero model calls happen
         # here unless a human actually said the phrase.
+        #
+        # Live captions arrive as growing fragments ("hey jac what" -> "hey jac
+        # what is" -> ...). Answering each fragment would fire several half-
+        # questions per sentence, so we wait for the ears to mark the caption
+        # final (text stopped changing) and answer each caption exactly once.
         ask = "";
         routed: dict[any] = {};
-        if changed and utt is not None {
+        if changed and utt is not None and self.final and not utt.wake_done {
             ask = detect_wake(utt.text);
             if ask != "" {
+                utt.wake_done = True;
                 routed = handle_wake(here, ask, utt.seq, utt.text);
             }
         }

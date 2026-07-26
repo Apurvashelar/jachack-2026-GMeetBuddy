@@ -70,12 +70,18 @@ OBSERVER_JS = r"""
     return 'Participant';
   }
 
-  function textOf(block) {
+  function textOf(block, speaker) {
     for (const sel of ['.bh44bd', '.iTTPOb', '[class*="text"]']) {
       const el = block.querySelector(sel);
       if (el && el.innerText.trim()) return el.innerText.trim();
     }
-    return block.innerText.trim();
+    // Fallback: the block's raw text starts with the speaker's name (often
+    // twice). Strip every leading repetition so the transcript is just speech.
+    let raw = block.innerText.trim();
+    if (speaker) {
+      while (raw.startsWith(speaker)) raw = raw.slice(speaker.length).trim();
+    }
+    return raw;
   }
 
   function scan() {
@@ -85,7 +91,8 @@ OBSERVER_JS = r"""
     // flatter than expected, fall back to treating the region as one block.
     const blocks = region.children.length ? Array.from(region.children) : [region];
     for (const block of blocks) {
-      const text = textOf(block);
+      const speaker = speakerOf(block);
+      const text = textOf(block, speaker);
       if (!text) continue;
       let rec = seen.get(block);
       if (!rec) {
@@ -98,7 +105,7 @@ OBSERVER_JS = r"""
       window.emitCaption(JSON.stringify({
         caption_id: rec.id,
         version: rec.version,
-        speaker: speakerOf(block),
+        speaker: speaker,
         text: text,
       }));
     }
@@ -215,21 +222,35 @@ class BrainSender(threading.Thread):
         self.queue.put(payload)
 
     def run(self):
+        # Meet captions grow word by word. `pending` holds the newest text per
+        # caption; a caption is FINAL once it has stopped changing for
+        # FINALIZE_AFTER_S, and only final captions may trigger the wake word -
+        # otherwise every fragment of a sentence asks its own half-question.
+        FINALIZE_AFTER_S = 2.0
+        pending = {}
         while not self.stop_flag.is_set():
             time.sleep(self.interval)
-            # Collapse the batch by caption_id so only the newest version of
-            # each evolving caption is sent.
-            batch = {}
             while True:
                 try:
                     item = self.queue.get_nowait()
                 except Empty:
                     break
-                batch[item["caption_id"]] = item
-            for item in batch.values():
-                self._post(item)
+                cid = item["caption_id"]
+                prev = pending.get(cid)
+                if prev and prev["item"]["text"] == item["text"]:
+                    continue
+                pending[cid] = {"item": item, "changed_at": time.time(), "sent_final": False}
 
-    def _post(self, item):
+            now = time.time()
+            for cid, rec in list(pending.items()):
+                is_final = (now - rec["changed_at"]) >= FINALIZE_AFTER_S
+                if is_final and rec["sent_final"]:
+                    continue
+                self._post(rec["item"], is_final)
+                if is_final:
+                    rec["sent_final"] = True
+
+    def _post(self, item, is_final=True):
         body = {
             "series": self.series,
             "speaker": item["speaker"],
@@ -238,6 +259,7 @@ class BrainSender(threading.Thread):
             "version": item["version"],
             "ts_ms": int((time.time() - self.started_at) * 1000),
             "source": "meet",
+            "final": is_final,
         }
         try:
             resp = requests.post(
@@ -503,6 +525,11 @@ def main():
     )
     ap.add_argument("--no-chat", action="store_true",
                     help="don't post answers into the Meet chat")
+    ap.add_argument("--hide", action="store_true",
+                    help="move the browser window offscreen. Attendee looks "
+                         "headless because it runs headful Chrome inside Xvfb; "
+                         "true headless mode is MORE detectable, so we stay "
+                         "headful and just get the window out of the way.")
     ap.add_argument("--login", action="store_true",
                     help="open a browser to sign the bot into a Google account "
                          "ONCE (needed to join meetings hosted by personal "
@@ -544,10 +571,20 @@ def main():
                 permissions=["microphone", "camera"],
                 viewport={"width": 1280, "height": 800},
             )
+            if args.hide:
+                kwargs["args"] = kwargs["args"] + ["--window-position=-3000,-3000"]
             try:
                 return p.chromium.launch_persistent_context(
                     profile_dir, channel="chrome", **kwargs)
             except Exception as exc:
+                msg = str(exc)
+                if "already in use" in msg or "existing browser session" in msg:
+                    # A stale browser holds this profile - falling back to the
+                    # bundled build would silently give up the real-Chrome
+                    # advantage, so surface it instead.
+                    raise RuntimeError(
+                        f"profile {profile_dir} is locked by another browser; "
+                        "close it (or delete the folder) and retry") from exc
                 print(f"  [bot] real Chrome unavailable ({exc.__class__.__name__}) - using bundled browser")
                 return p.chromium.launch_persistent_context(profile_dir, **kwargs)
 
