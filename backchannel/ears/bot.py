@@ -116,6 +116,44 @@ OBSERVER_JS = r"""
 """
 
 
+# Google sometimes refuses anonymous/automated browsers outright with these
+# screens. Attendee (github.com/attendee-labs/attendee) treats them as
+# TRANSIENT: tear the whole browser down and retry fresh - that is what our
+# join loop does too. (Reference only; this bot shares no code with Attendee.)
+BLOCKING_TEXTS = [
+    "You can't join this video call",
+    "There is a problem connecting to this video call",
+]
+DENIED_TEXTS = [
+    "denied your request to join",
+    "No one responded to your request",
+]
+SIGNIN_TEXTS = [
+    "your Google Account",
+]
+
+
+def page_has_text(page, needle):
+    try:
+        return page.get_by_text(needle, exact=False).count() > 0
+    except Exception:
+        return False
+
+
+def classify_page(page):
+    """Return 'blocked' / 'denied' / 'signin' when Meet shows a wall, else ''."""
+    for t in BLOCKING_TEXTS:
+        if page_has_text(page, t):
+            return "blocked"
+    for t in DENIED_TEXTS:
+        if page_has_text(page, t):
+            return "denied"
+    for t in SIGNIN_TEXTS:
+        if page_has_text(page, t):
+            return "signin"
+    return ""
+
+
 def try_click(page, selectors, timeout=2500, label=""):
     """Click the first selector that resolves. Returns True on success."""
     for sel in selectors:
@@ -345,9 +383,15 @@ def deliver_answer(page, ans, args):
 
 
 def join_meet(page, meet_url, bot_name):
+    """One join attempt. Returns 'joined', 'blocked', 'signin', 'denied',
+    'nojoin' or 'timeout' - the caller decides whether to retry."""
     print(f"  [bot] opening {meet_url}")
     page.goto(meet_url, wait_until="domcontentloaded", timeout=60000)
     time.sleep(4)
+
+    wall = classify_page(page)
+    if wall:
+        return wall
 
     for _ in range(3):
         if not try_click(page, locators.DISMISS_BUTTONS, timeout=1200, label="popup"):
@@ -365,16 +409,28 @@ def join_meet(page, meet_url, bot_name):
     time.sleep(0.5)
 
     if not try_click(page, locators.JOIN_BUTTONS, timeout=6000, label="join"):
+        wall = classify_page(page)
+        if wall:
+            return wall
         print("  [bot] !! could not find the join button - check locators.JOIN_BUTTONS")
-        return False
+        return "nojoin"
 
     print("  [bot] waiting to be ADMITTED - a human must click Admit in the Meet...")
-    hit = wait_for_any(page, locators.IN_CALL_MARKER, timeout_s=600)
-    if not hit:
-        print("  [bot] !! never got in (not admitted, or IN_CALL_MARKER is stale)")
-        return False
-    print("  [bot] admitted - in the call")
-    return True
+    deadline = time.time() + 600
+    while time.time() < deadline:
+        for sel in locators.IN_CALL_MARKER:
+            try:
+                if page.query_selector(sel):
+                    print("  [bot] admitted - in the call")
+                    return "joined"
+            except Exception:
+                pass
+        wall = classify_page(page)
+        if wall:
+            return wall
+        time.sleep(1)
+    print("  [bot] !! admit window expired")
+    return "timeout"
 
 
 def enable_captions(page):
@@ -412,32 +468,72 @@ def main():
     sender = BrainSender(args.brain, args.series)
     sender.start()
 
+    def on_caption(raw):
+        try:
+            sender.submit(json.loads(raw))
+        except Exception as exc:
+            print(f"  [bot] bad caption payload: {exc}")
+
     with sync_playwright() as p:
-        # A persistent profile looks less like a fresh automation session, and
-        # --use-fake-ui-for-media-stream auto-accepts the mic/cam permission
-        # prompt so the bot never blocks on a native dialog.
-        ctx = p.chromium.launch_persistent_context(
-            args.user_data_dir,
-            headless=False,
-            args=[
-                "--use-fake-ui-for-media-stream",
-                "--disable-blink-features=AutomationControlled",
-            ],
-            permissions=["microphone", "camera"],
-            viewport={"width": 1280, "height": 800},
-        )
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
 
-        def on_caption(raw):
+        def launch(profile_dir):
+            # Launch flags mirror what keeps Attendee's bots unblocked:
+            # exclude Chromium's --enable-automation default (the loudest
+            # automation tell), fake mic/cam DEVICE + auto-granted permission
+            # prompts, no autoplay gesture requirement.
+            return p.chromium.launch_persistent_context(
+                profile_dir,
+                headless=False,
+                ignore_default_args=["--enable-automation"],
+                args=[
+                    "--use-fake-ui-for-media-stream",
+                    "--use-fake-device-for-media-stream",
+                    "--autoplay-policy=no-user-gesture-required",
+                    "--disable-blink-features=AutomationControlled",
+                ],
+                permissions=["microphone", "camera"],
+                viewport={"width": 1280, "height": 800},
+            )
+
+        # Google's "You can't join this video call" wall is usually transient:
+        # a fresh browser (fresh profile) often sails through. Three attempts.
+        ctx = None
+        page = None
+        status = ""
+        for attempt in range(1, 4):
+            profile_dir = f"{args.user_data_dir}-{attempt}"
+            shutil.rmtree(profile_dir, ignore_errors=True)
+            ctx = launch(profile_dir)
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            page.expose_function("emitCaption", on_caption)
+
+            status = join_meet(page, args.meet_url, args.name)
+            if status == "joined":
+                break
+
             try:
-                sender.submit(json.loads(raw))
-            except Exception as exc:
-                print(f"  [bot] bad caption payload: {exc}")
-
-        page.expose_function("emitCaption", on_caption)
-
-        if not join_meet(page, args.meet_url, args.name):
+                page.screenshot(path=".jac/bot-wall.png")
+                print("  [bot] saved screenshot of the wall to .jac/bot-wall.png")
+            except Exception:
+                pass
             ctx.close()
+            ctx = None
+
+            if status == "denied":
+                print("  [bot] !! someone denied the join request - not retrying")
+                break
+            if status == "signin":
+                print("  [bot] !! this meeting requires a signed-in Google account.")
+                print("        Create the Meet from a personal Gmail (not Workspace),")
+                print("        or relax its 'join by link' setting, and try again.")
+                break
+            if status == "timeout":
+                print("  [bot] !! nobody admitted the bot - not retrying")
+                break
+            print(f"  [bot] attempt {attempt} hit '{status}' - relaunching a fresh browser in 5s...")
+            time.sleep(5)
+
+        if status != "joined" or ctx is None:
             sender.stop_flag.set()
             return 1
 
