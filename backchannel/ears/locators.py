@@ -46,10 +46,15 @@ JOIN_BUTTONS = [
 
 # In-call ---------------------------------------------------------------------
 
-# Presence of this is the bot's "I am actually in the meeting" signal.
+# Presence of ANY of these is the bot's "I am actually in the meeting" signal.
+# The chat/people buttons only exist in-call, so they back up the Leave button
+# in case its aria-label shifts.
 IN_CALL_MARKER = [
     "[aria-label*='Leave call' i]",
     "button[aria-label*='Leave call' i]",
+    "[aria-label*='Chat with everyone' i]",
+    "[aria-label*='Show everyone' i]",
+    "[aria-label*='People' i]",
 ]
 
 CAPTIONS_BUTTON = [

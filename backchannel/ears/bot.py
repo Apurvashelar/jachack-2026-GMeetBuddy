@@ -369,7 +369,7 @@ def join_meet(page, meet_url, bot_name):
         return False
 
     print("  [bot] waiting to be ADMITTED - a human must click Admit in the Meet...")
-    hit = wait_for_any(page, locators.IN_CALL_MARKER, timeout_s=180)
+    hit = wait_for_any(page, locators.IN_CALL_MARKER, timeout_s=600)
     if not hit:
         print("  [bot] !! never got in (not admitted, or IN_CALL_MARKER is stale)")
         return False
