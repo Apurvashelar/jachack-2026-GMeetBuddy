@@ -197,7 +197,8 @@ Conference wifi has ended more demos than bad code. Deploy for the judging check
 | `405` on an endpoint | Its name is missing from `main.jac`'s import list. Add it. |
 | `500 "Invalid anchor id"` | Node schema changed under persisted data → `rm -rf .jac/data/` and restart. |
 | Feed frozen for ~60s | Something used an `sv import` reader call instead of `root spawn Tick(...)` — reader responses are cached 60s. |
-| Answers are vague/generic | `OPENAI_API_KEY` isn't reaching the server — it's running the keyword fallback. Check `./run.sh` output. |
+| Answers are vague/generic | `OPENAI_API_KEY` isn't reaching the server, OR the OpenAI account has **no billing credit** (server log shows `429 ... exceeded your current quota` — add ~$5 at platform.openai.com billing). Check `./run.sh` output. |
+| Server log: `'litellm' is required` | Run `./run.sh` — it self-installs litellm into `.jac/venv` (binary-only; a plain `jac install litellm` fails on Python 3.14). |
 | Action card says `dry-run` | `GITHUB_PAT` / `GITHUB_OWNER` / `GITHUB_REPO` unset. Expected without them. |
 | Editing `.jac` files mid-demo breaks the graph | HMR reloads archetypes under persisted data. **Don't edit files during the demo.** |
 | Bot never gets into the Meet | Nobody clicked Admit, or the meeting is Workspace-hosted and blocks guests. Use a personal Gmail meeting. |

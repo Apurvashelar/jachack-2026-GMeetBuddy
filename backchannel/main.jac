@@ -8,9 +8,11 @@ import from graph {
     MeetingSeries, Session, Utterance, Answer, Action, Doc, DocChunk, SessionSummary
 }
 
-import from ingest { IngestChunk, Tick, LoadDoc }
+import from ingest { IngestChunk, Tick, LoadDoc, SyncWorkspace }
 
 import from answer { AnswerQuestion, ExecuteAction, EndSession, Summarize }
+
+import from botctl { StartBot, StopBot }
 
 # Client-side UI
 cl {

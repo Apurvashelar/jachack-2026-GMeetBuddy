@@ -16,6 +16,7 @@ import from ai {
     safe_answer, safe_route, safe_summary, safe_distill
 }
 import from adapters { dispatch_action, synthesize_speech, speak_local }
+import from workspace { read_context_file, append_context_file }
 
 
 glob SUMMARY_EVERY: int = 6;
@@ -44,11 +45,19 @@ def doc_chunks_of(series: MeetingSeries) -> list[str] {
 }
 
 
-"""Flatten prior distilled sessions into the memory block."""
+"""Flatten prior distilled sessions into the memory block.
+
+Two sources, combined: SessionSummary nodes on the graph, and the series'
+context.md file - the latter survives even a full graph wipe, and humans can
+edit it by hand."""
 def prior_memory_of(series: MeetingSeries) -> str {
     blocks: list[str] = [];
     for m in [series -->[?:SessionSummary]] {
         blocks.append(f"[session of {m.started_at}]\n{m.bullets}\nDecisions:\n{m.decisions}");
+    }
+    file_ctx = read_context_file(series.name);
+    if file_ctx.strip() != "" {
+        blocks.append(f"[persistent context file]\n{file_ctx}");
     }
     return "\n\n".join(blocks);
 }
@@ -214,6 +223,12 @@ walker:pub EndSession {
                     bullets=distilled.bullets,
                     decisions=distilled.decisions,
                     started_at=sess.started_at
+                );
+                # The graph remembers, and so does the workspace file - the
+                # file is what makes memory survive even a graph wipe.
+                append_context_file(
+                    self.series, sess.started_at,
+                    distilled.bullets, distilled.decisions
                 );
             }
             sess.live = False;

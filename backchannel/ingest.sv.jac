@@ -14,6 +14,8 @@ import from graph {
     SessionSummary, now_ms, now_iso, get_series, get_live_session
 }
 import from answer { handle_wake, advance_summary }
+import from workspace { list_workspace_docs, workspace_dir }
+import from botctl { bot_running, bot_log_tail }
 
 
 glob WAKE_PHRASES: list[str] = [
@@ -174,7 +176,7 @@ walker:pub Tick {
     has series: str,
         after_seq: int = -1,
         memory_cache: list[dict[any]] = [],
-        doc_title: str = "",
+        doc_titles: list[str] = [],
         doc_chunks: int = 0,
         reports: list[dict[any]] = [];
 
@@ -190,14 +192,14 @@ walker:pub Tick {
                 "started_at": m.started_at
             });
         }
-        doc_title = "";
+        titles: list[str] = [];
         chunk_count = 0;
         for d in [here -->[?:Doc]] {
-            doc_title = d.title;
-            chunk_count = len([d -->[?:DocChunk]]);
+            titles.append(d.title);
+            chunk_count += len([d -->[?:DocChunk]]);
         }
         self.memory_cache = memory;
-        self.doc_title = doc_title;
+        self.doc_titles = titles;
         self.doc_chunks = chunk_count;
         visit get_live_session(here);
     }
@@ -239,9 +241,53 @@ walker:pub Tick {
             "source": here.source,
             "total": here.next_seq,
             "memory": self.memory_cache,
-            "doc_title": self.doc_title,
-            "doc_chunks": self.doc_chunks
+            "doc_titles": self.doc_titles,
+            "doc_chunks": self.doc_chunks,
+            "bot_running": bot_running(),
+            "bot_log": bot_log_tail(2),
+            "workspace": workspace_dir(self.series)
         };
+    }
+}
+
+
+walker:pub SyncWorkspace {
+    """Reload the series' grounding docs from its meetings/<slug>/docs/ folder.
+
+    Drop .md or .txt files in the folder, click Sync on the dashboard (or POST
+    here), and they replace whatever docs were previously attached. This is the
+    "hand the bot a document" path for humans; LoadDoc below is the same thing
+    for scripts.
+    """
+
+    has series: str,
+        reports: list[dict[any]] = [];
+
+    can at_root with Root entry {
+        visit get_series(self.series);
+    }
+
+    can at_series with MeetingSeries entry {
+        found = list_workspace_docs(self.series);
+        if len(found) == 0 {
+            report {"ok": False, "loaded": [],
+                    "error": f"No .md/.txt files in {workspace_dir(self.series)}/docs/"};
+            disengage;
+        }
+        for old in [here -->[?:Doc]] {
+            del old;
+        }
+        loaded: list[str] = [];
+        for row in found {
+            fname = row[0];
+            text = row[1];
+            doc = here ++> Doc(title=fname);
+            for (i, piece) in enumerate(chunk_text(text)) {
+                doc ++> DocChunk(text=piece, idx=i);
+            }
+            loaded.append(fname);
+        }
+        report {"ok": True, "loaded": loaded};
     }
 }
 

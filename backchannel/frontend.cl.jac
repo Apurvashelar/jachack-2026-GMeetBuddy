@@ -16,8 +16,9 @@ import from react { useEffect }
 
 import from .components.Cards { AnswerCard, ActionCard, FeedLine, SourceBadge }
 
-sv import from ingest { Tick }
+sv import from ingest { Tick, SyncWorkspace }
 sv import from answer { EndSession, Summarize }
+sv import from botctl { StartBot, StopBot }
 
 
 glob SERIES_NAME: str = "Research Weekly Sync";
@@ -51,8 +52,14 @@ def:pub app -> JsxElement {
         actions: list[any] = [],
         memory: list[any] = [],
         summary: str = "",
-        docTitle: str = "",
+        docTitles: list[any] = [],
         docChunks: int = 0,
+        meetUrl: str = "",
+        botRunning: bool = False,
+        botLog: str = "",
+        botMsg: str = "",
+        syncMsg: str = "",
+        workspacePath: str = "",
         startedAt: str = "",
         source: str = "",
         total: int = 0,
@@ -74,8 +81,11 @@ def:pub app -> JsxElement {
             actions = r["actions"] as list[any];
             memory = r["memory"] as list[any];
             summary = str(r["summary"]);
-            docTitle = str(r["doc_title"]);
+            docTitles = r["doc_titles"] as list[any];
             docChunks = int(r["doc_chunks"]);
+            botRunning = bool(r["bot_running"]);
+            botLog = str(r["bot_log"]);
+            workspacePath = str(r["workspace"]);
             startedAt = str(r["started_at"]);
             source = str(r["source"]);
             total = int(r["total"]);
@@ -113,6 +123,41 @@ def:pub app -> JsxElement {
         voiceOn = not voiceOn;
     }
 
+    async def sendBot(e: MouseEvent) -> None {
+        if meetUrl.strip() == "" {
+            botMsg = "Paste a Google Meet link first.";
+            return;
+        }
+        botMsg = "Launching bot...";
+        result = root spawn StartBot(series=SERIES_NAME, meet_url=meetUrl);
+        if result.reports and len(result.reports) > 0 {
+            r: any = result.reports[0];
+            botMsg = str(r["note"]) if bool(r["ok"]) else str(r["error"]);
+        }
+    }
+
+    async def stopTheBot(e: MouseEvent) -> None {
+        result = root spawn StopBot();
+        if result.reports and len(result.reports) > 0 {
+            r: any = result.reports[0];
+            botMsg = "Bot stopped." if bool(r["ok"]) else str(r["error"]);
+        }
+    }
+
+    async def syncDocs(e: MouseEvent) -> None {
+        syncMsg = "Syncing...";
+        result = root spawn SyncWorkspace(series=SERIES_NAME);
+        if result.reports and len(result.reports) > 0 {
+            r: any = result.reports[0];
+            if bool(r["ok"]) {
+                loaded = r["loaded"] as list[any];
+                syncMsg = "Loaded " + str(len(loaded)) + " doc(s)";
+            } else {
+                syncMsg = str(r["error"]);
+            }
+        }
+    }
+
     useEffect(lambda {
         poll();
         interval = setInterval(lambda { poll(); }, 2000);
@@ -143,7 +188,7 @@ def:pub app -> JsxElement {
                 <span>session <strong style={{"color": "#c9d1e0"}}>{startedAt if startedAt != "" else "—"}</strong></span>
                 <span>ears <strong style={{"color": "#c9d1e0"}}>{source if source != "" else "—"}</strong></span>
                 <span>captions <strong style={{"color": "#c9d1e0"}}>{str(total)}</strong></span>
-                <span>doc <strong style={{"color": "#c9d1e0"}}>{(docTitle[:44] + " · " + str(docChunks) + " chunks") if docTitle != "" else "none loaded"}</strong></span>
+                <span>docs <strong style={{"color": "#c9d1e0"}}>{(str(len(docTitles)) + " loaded · " + str(docChunks) + " chunks") if len(docTitles) > 0 else "none loaded"}</strong></span>
             </div>
         </header>
 
@@ -182,6 +227,73 @@ def:pub app -> JsxElement {
             </section>
 
             <div style={{"display": "flex", "flexDirection": "column", "gap": "1rem"}}>
+                <section
+                    style={{
+                        "backgroundColor": "#11151d", "border": "1px solid #1e2430",
+                        "borderRadius": "14px", "padding": "1rem"
+                    }}
+                >
+                    <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "0.6rem"}}>
+                        <h2 style={{"margin": "0", "fontSize": "0.78rem", "letterSpacing": "0.1em", "color": "#8b93a7"}}>LIVE MEETING</h2>
+                        <span style={{"fontSize": "0.68rem", "fontWeight": "700", "color": "#33c46f" if botRunning else "#6f7891"}}>{"● BOT IN CALL" if botRunning else "BOT IDLE"}</span>
+                    </div>
+                    <div style={{"display": "flex", "gap": "0.4rem", "marginBottom": "0.5rem"}}>
+                        <input
+                            type="text"
+                            value={meetUrl}
+                            onChange={lambda (e: ChangeEvent) { meetUrl = e.target.value; }}
+                            placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                            style={{
+                                "flex": "1", "padding": "0.45rem 0.6rem", "fontSize": "0.8rem",
+                                "backgroundColor": "#0d1017", "border": "1px solid #2b3243",
+                                "borderRadius": "7px", "color": "#f2f5fa"
+                            }}
+                        />
+                        {if not botRunning {
+                            <button
+                                onClick={sendBot}
+                                style={{
+                                    "background": "#1d2536", "border": "1px solid #4c8dff",
+                                    "color": "#4c8dff", "borderRadius": "7px", "fontWeight": "700",
+                                    "padding": "0.45rem 0.8rem", "fontSize": "0.72rem", "cursor": "pointer"
+                                }}
+                            >SEND BOT</button>
+                        }}
+                        {if botRunning {
+                            <button
+                                onClick={stopTheBot}
+                                style={{
+                                    "background": "transparent", "border": "1px solid #ff5d5d",
+                                    "color": "#ff5d5d", "borderRadius": "7px", "fontWeight": "700",
+                                    "padding": "0.45rem 0.8rem", "fontSize": "0.72rem", "cursor": "pointer"
+                                }}
+                            >STOP BOT</button>
+                        }}
+                    </div>
+                    {if botMsg != "" {
+                        <p style={{"margin": "0 0 0.4rem", "color": "#f0a832", "fontSize": "0.75rem"}}>{botMsg}</p>
+                    }}
+                    {if botRunning and botLog != "" {
+                        <pre style={{"margin": "0 0 0.4rem", "whiteSpace": "pre-wrap", "color": "#5c6479", "fontSize": "0.68rem", "fontFamily": "ui-monospace, monospace"}}>{botLog}</pre>
+                    }}
+                    <div style={{"display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "0.5rem", "borderTop": "1px solid #1e2430", "paddingTop": "0.55rem"}}>
+                        <span style={{"color": "#6f7891", "fontSize": "0.72rem", "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"}}>
+                            {("docs: " + ", ".join([str(t) for t in docTitles])) if len(docTitles) > 0 else ("drop .md/.txt into " + workspacePath + "/docs")}
+                        </span>
+                        <button
+                            onClick={syncDocs}
+                            style={{
+                                "background": "transparent", "border": "1px solid #2b3243",
+                                "color": "#8b93a7", "borderRadius": "7px", "flexShrink": "0",
+                                "padding": "0.25rem 0.55rem", "fontSize": "0.68rem", "cursor": "pointer"
+                            }}
+                        >SYNC DOCS</button>
+                    </div>
+                    {if syncMsg != "" {
+                        <p style={{"margin": "0.35rem 0 0", "color": "#8b93a7", "fontSize": "0.72rem"}}>{syncMsg}</p>
+                    }}
+                </section>
+
                 <section
                     style={{
                         "backgroundColor": "#11151d", "border": "1px solid #1e2430",

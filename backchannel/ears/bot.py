@@ -23,6 +23,9 @@ Design notes:
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -218,6 +221,129 @@ class BrainSender(threading.Thread):
             print(f"  [bot] ingest failed: {exc}")
 
 
+class AnswerWatcher(threading.Thread):
+    """Polls the brain for new Answer verdicts and queues them for delivery.
+
+    Only watches - the actual speaking and chat-posting happens on the MAIN
+    thread (Playwright's sync API is not thread-safe), which drains
+    `self.pending` in the keep-alive loop.
+    """
+
+    def __init__(self, brain, series):
+        super().__init__(daemon=True)
+        self.brain = brain.rstrip("/")
+        self.series = series
+        self.pending = Queue()
+        self.stop_flag = threading.Event()
+        self.seen = set()
+        self.primed = False
+
+    def run(self):
+        while not self.stop_flag.is_set():
+            try:
+                resp = requests.post(
+                    f"{self.brain}/walker/Tick",
+                    json={"series": self.series, "after_seq": 10 ** 9},
+                    timeout=30,
+                )
+                reports = (resp.json().get("data") or {}).get("reports") or []
+                answers = reports[0].get("answers", []) if reports else []
+                for ans in answers:
+                    key = str(ans.get("ts_ms"))
+                    if key in self.seen:
+                        continue
+                    self.seen.add(key)
+                    # First poll only records what already exists, so joining
+                    # mid-meeting doesn't replay every old answer aloud.
+                    if self.primed:
+                        self.pending.put(ans)
+                self.primed = True
+            except Exception as exc:
+                print(f"  [bot] answer poll failed: {exc}")
+            time.sleep(2)
+
+
+def speak_answer(ans, voice):
+    """Play one answer out loud. Never raises.
+
+    Preference order: the server-rendered mp3 (OpenAI tts-1) if it exists,
+    else macOS's built-in `say` - which is free, offline, and immune to API
+    quota problems.
+    """
+    if voice == "off":
+        return
+    text = str(ans.get("answer", ""))[:600]
+    if not text:
+        return
+    mp3 = os.path.join("audio", f"answer-{ans.get('ts_ms')}.mp3")
+    # The server writes the mp3 around the same moment we learn of the answer;
+    # give it a moment before falling back.
+    for _ in range(6):
+        if os.path.exists(mp3):
+            break
+        time.sleep(0.5)
+
+    try:
+        if voice == "blackhole":
+            # Into the virtual mic -> remote participants hear it.
+            if os.path.exists(mp3) and shutil.which("mpv"):
+                subprocess.Popen(
+                    ["mpv", "--no-video", "--really-quiet",
+                     "--audio-device=coreaudio/BlackHole 2ch", mp3],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.Popen(["say", "-a", "BlackHole 2ch", text],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:  # auto: this machine's speakers (fine when everyone is in the room)
+            if os.path.exists(mp3):
+                subprocess.Popen(["afplay", mp3],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.Popen(["say", text],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"  [bot] speaking ({voice}): {text[:80]}...")
+    except Exception as exc:
+        print(f"  [bot] speak failed: {exc}")
+
+
+def post_to_chat(page, text):
+    """Post one message into the Meet chat panel. Best-effort."""
+    try:
+        # Open the chat panel if the input isn't already visible.
+        input_el = None
+        for sel in locators.CHAT_INPUT:
+            input_el = page.query_selector(sel)
+            if input_el:
+                break
+        if not input_el:
+            if not try_click(page, locators.CHAT_OPEN_BUTTON, timeout=3000, label="chat"):
+                return False
+            time.sleep(1.2)
+            for sel in locators.CHAT_INPUT:
+                input_el = page.query_selector(sel)
+                if input_el:
+                    break
+        if not input_el:
+            return False
+        input_el.fill(text[:480])
+        time.sleep(0.2)
+        if not try_click(page, locators.CHAT_SEND, timeout=1500, label="send"):
+            input_el.press("Enter")
+        print(f"  [bot] chat: {text[:70]}...")
+        return True
+    except Exception as exc:
+        print(f"  [bot] chat post failed: {exc}")
+        return False
+
+
+def deliver_answer(page, ans, args):
+    """One answer -> voice + chat, from the main thread."""
+    speak_answer(ans, args.voice)
+    if not args.no_chat:
+        src = ans.get("source", "")
+        post_to_chat(page, f"[Backchannel · {src}] {ans.get('answer', '')}")
+
+
 def join_meet(page, meet_url, bot_name):
     print(f"  [bot] opening {meet_url}")
     page.goto(meet_url, wait_until="domcontentloaded", timeout=60000)
@@ -273,6 +399,14 @@ def main():
     ap.add_argument("--brain", default="http://localhost:8000")
     ap.add_argument("--name", default="Backchannel")
     ap.add_argument("--user-data-dir", default=".jac/bot-profile")
+    ap.add_argument(
+        "--voice", default="auto", choices=["auto", "blackhole", "off"],
+        help="auto: play answers on this machine's speakers; blackhole: play "
+             "into the BlackHole virtual mic so REMOTE participants hear the "
+             "bot (run setup_voice.sh first); off: text only",
+    )
+    ap.add_argument("--no-chat", action="store_true",
+                    help="don't post answers into the Meet chat")
     args = ap.parse_args()
 
     sender = BrainSender(args.brain, args.series)
@@ -315,17 +449,39 @@ def main():
         except Exception as exc:
             print(f"  [bot] !! observer failed to install: {exc}")
 
-        print("  [bot] capturing. Ctrl-C to stop.")
+        if args.voice == "blackhole":
+            # The bot joined muted; unmute so the Meet transmits the virtual
+            # mic. Cmd+D is Meet's mic toggle on macOS.
+            try:
+                page.keyboard.press("Meta+d")
+                print("  [bot] unmuted (blackhole voice mode)")
+            except Exception as exc:
+                print(f"  [bot] could not unmute: {exc}")
+
+        watcher = AnswerWatcher(args.brain, args.series)
+        watcher.start()
+
+        print(f"  [bot] capturing (voice={args.voice}, chat={'off' if args.no_chat else 'on'}). Ctrl-C to stop.")
         try:
             while True:
-                time.sleep(5)
-                if not page.query_selector(locators.IN_CALL_MARKER[0]):
-                    print("  [bot] call appears to have ended")
-                    break
+                time.sleep(1)
+                # Deliver any answers the watcher found (main thread only -
+                # Playwright's sync API is not thread-safe).
+                while True:
+                    try:
+                        ans = watcher.pending.get_nowait()
+                    except Empty:
+                        break
+                    deliver_answer(page, ans, args)
+                if int(time.time()) % 5 == 0:
+                    if not page.query_selector(locators.IN_CALL_MARKER[0]):
+                        print("  [bot] call appears to have ended")
+                        raise KeyboardInterrupt
         except KeyboardInterrupt:
             print("\n  [bot] stopping")
         finally:
             sender.stop_flag.set()
+            watcher.stop_flag.set()
             time.sleep(0.5)
             print(f"  [bot] sent {sender.sent} caption updates")
             ctx.close()

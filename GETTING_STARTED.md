@@ -165,23 +165,58 @@ printf 'GITHUB_PAT=github_pat_YOURTOKEN\nGITHUB_OWNER=YOUR-GITHUB-USERNAME\nGITH
 > Note the `>>` in that command (append) versus the single `>` in Part 2 (overwrite). Using `>` here
 > would erase your OpenAI key.
 
-## Part 7 — Optional: the live Google Meet bot
+## Part 7 — The live Google Meet bot
 
-This is theatre — the app works fully without it, and the replay is the reliable path. Only attempt
-it if you have spare time.
+One-time install:
 
 ```bash
 pip install playwright requests
 python -m playwright install chromium
-
-cd ~/Downloads/jachack-2026-GMeetBuddy/backchannel
-python ears/bot.py --meet-url https://meet.google.com/xxx-xxxx-xxx \
-                   --series "Research Weekly Sync" \
-                   --brain http://localhost:8000
 ```
 
-A Chrome window opens and asks to join your Meet. **You must click Admit yourself** from your phone
-or another device — the bot joins muted with its camera off and cannot let itself in.
+Then you don't need the terminal at all: on the dashboard, paste your Meet link into the
+**LIVE MEETING** box and click **SEND BOT**. A Chrome window opens and asks to join.
+**You must click Admit yourself** from inside the Meet — the bot joins muted with its camera off
+and cannot let itself in. **STOP BOT** ends it.
+
+Once admitted, the bot turns captions on and streams them into the brain. Say
+*"Hey Jac, …"* out loud and the answer comes back three ways: on the dashboard, **spoken aloud**,
+and **posted into the Meet chat** (so remote colleagues see it even without audio).
+
+### Making REMOTE participants hear the bot's voice
+
+By default (`auto` voice) answers play on YOUR laptop speakers — perfect when everyone is in the
+room. For the bot to speak INTO the Meet so remote people hear it, it needs a virtual microphone:
+
+```bash
+cd ~/Downloads/jachack-2026-GMeetBuddy/backchannel
+./setup_voice.sh        # installs BlackHole + tools via Homebrew, sets it as the input device
+```
+
+Then launch the bot with blackhole voice (from a terminal this time):
+
+```bash
+python3 ears/bot.py --meet-url https://meet.google.com/xxx-xxxx-xxx \
+                    --series "Research Weekly Sync" \
+                    --brain http://localhost:8000 --voice blackhole
+```
+
+Afterwards restore your real mic: `SwitchAudioSource -t input -s "MacBook Pro Microphone"`.
+Even without any of this, the chat posting always works.
+
+### Giving the bot documents (the RAG drop-zone)
+
+Every meeting series gets its own folder: **`meetings/<series-name>/`**. Drop any `.md` or `.txt`
+files into **`meetings/research-weekly-sync/docs/`** and click **SYNC DOCS** on the dashboard —
+they all become grounding material for answers.
+
+The same folder holds **`context.md`** — written automatically when you click **END + DISTILL**
+(or the session ends). Next meeting, the bot reads it back as PRIOR_MEETING memory. It survives
+literally everything, including deleting the entire graph, and you can edit it by hand.
+
+**Google Drive, no API needed:** if you use *Google Drive for desktop*, set
+`BC_MEETINGS_DIR=/Users/you/Google Drive/My Drive/backchannel` in `.env` — every meeting's docs
+folder and context file then lives in Drive, synced and shareable with your colleague.
 
 **Two things that will bite you:**
 - Create the Meet from a **personal Gmail**, not a work/Workspace account. Workspace meetings usually

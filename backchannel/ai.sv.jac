@@ -201,20 +201,47 @@ def select_chunks(question: str, chunks: list[str], top: int) -> list[str] {
 
 """Deterministic fallback used when there is no API key or the model call fails.
 
-Returns the best-matching document chunk as a DOC-sourced answer, or an honest
+Scores the document, the live transcript and prior-meeting memory by keyword
+overlap and returns the best span with the matching typed source - or an honest
 UNKNOWN. Never invents anything."""
-def fallback_answer(question: str, chunks: list[str]) -> GroundedAnswer {
-    best = select_chunks(question, chunks, 1);
-    if len(best) == 0 {
+def fallback_answer(question: str, chunks: list[str], transcript: str, prior: str) -> GroundedAnswer {
+    candidates: list[tuple] = [];
+    for c in chunks {
+        candidates.append((score_chunk(question, c), SourceKind.DOC, "From the loaded document", c));
+    }
+    for block in transcript.split("\n") {
+        lowered = block.lower();
+        # Never cite a wake-phrase line: the question would match itself.
+        if "hey jac" in lowered or "hey jack" in lowered or "hey jacques" in lowered {
+            continue;
+        }
+        if len(block.strip()) > 20 {
+            candidates.append((score_chunk(question, block), SourceKind.TRANSCRIPT, "Said earlier in this meeting", block));
+        }
+    }
+    for block in prior.split("\n\n") {
+        if len(block.strip()) > 20 {
+            candidates.append((score_chunk(question, block), SourceKind.PRIOR_MEETING, "From a prior session", block));
+        }
+    }
+    best_score = 0;
+    best: tuple | None = None;
+    for cand in candidates {
+        if cand[0] > best_score {
+            best_score = cand[0];
+            best = cand;
+        }
+    }
+    if best is None {
         return GroundedAnswer(
-            answer="I could not find that in the loaded document or in this meeting so far.",
+            answer="I could not find that in the loaded document, this meeting, or prior sessions.",
             source=SourceKind.UNKNOWN, quote=""
         );
     }
-    snippet = best[0][:400];
+    snippet = str(best[3]).strip()[:400];
     return GroundedAnswer(
-        answer=f"From the loaded document: {snippet[:220]}",
-        source=SourceKind.DOC, quote=snippet[:200]
+        answer=f"{str(best[2])}: {snippet[:220]}",
+        source=best[1] as SourceKind, quote=snippet[:200]
     );
 }
 
@@ -222,7 +249,7 @@ def fallback_answer(question: str, chunks: list[str]) -> GroundedAnswer {
 """Answer a question, degrading to keyword retrieval rather than failing."""
 def safe_answer(question: str, chunks: list[str], transcript: str, prior: str) -> GroundedAnswer {
     if not HAS_LLM {
-        return fallback_answer(question, chunks);
+        return fallback_answer(question, chunks, transcript, prior);
     }
     excerpts = "\n\n---\n\n".join(select_chunks(question, chunks, 4));
     try {
@@ -234,7 +261,7 @@ def safe_answer(question: str, chunks: list[str], transcript: str, prior: str) -
         );
     } except Exception as e {
         print(f"[backchannel] answer_question failed, falling back: {str(e)}");
-        return fallback_answer(question, chunks);
+        return fallback_answer(question, chunks, transcript, prior);
     }
 }
 

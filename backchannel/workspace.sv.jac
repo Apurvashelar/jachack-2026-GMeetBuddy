@@ -1,0 +1,100 @@
+"""Backchannel - per-meeting workspaces on plain disk.
+
+Every meeting series gets a folder:
+
+    meetings/<slug>/
+      docs/         drop .md / .txt files here; SyncWorkspace ingests them all
+      context.md    appended after every session (distilled memory)
+
+Two reasons this exists alongside the graph:
+
+1. Humans need a drop-zone. "Put the paper in the folder" beats crafting a
+   curl request.
+2. `context.md` is memory that survives EVERYTHING - even `rm -rf .jac/data`.
+   AnswerQuestion reads it as PRIOR_MEETING evidence in addition to the graph's
+   SessionSummary nodes, so the bot walks into next week's meeting already
+   knowing what was decided.
+
+Google Drive, without an API: point BC_MEETINGS_DIR at a folder inside
+"Google Drive for desktop" (e.g. ~/Google Drive/My Drive/backchannel) and every
+workspace - context files and doc drop-zones - syncs to Drive and can be shared
+with colleagues. No OAuth, no service accounts, no code.
+"""
+
+import os;
+
+
+glob MEETINGS_DIR: str = os.environ.get("BC_MEETINGS_DIR", "meetings");
+
+
+"""Filesystem-safe slug for a series name."""
+def series_slug(name: str) -> str {
+    out = "";
+    for ch in name.lower() {
+        if ch.isalnum() {
+            out += ch;
+        } elif len(out) > 0 and not out.endswith("-") {
+            out += "-";
+        }
+    }
+    return out.strip("-") or "meeting";
+}
+
+
+"""The series' workspace folder; created (with docs/) on first touch."""
+def workspace_dir(series_name: str) -> str {
+    path = os.path.join(MEETINGS_DIR, series_slug(series_name));
+    os.makedirs(os.path.join(path, "docs"), exist_ok=True);
+    return path;
+}
+
+
+"""Read the persistent context file. Empty string when there is none yet."""
+def read_context_file(series_name: str) -> str {
+    path = os.path.join(workspace_dir(series_name), "context.md");
+    if not os.path.exists(path) {
+        return "";
+    }
+    with open(path, "r") as fh {
+        return fh.read();
+    }
+}
+
+
+"""Append one session's distilled memory to the context file."""
+def append_context_file(series_name: str, started_at: str, bullets: str, decisions: str) {
+    path = os.path.join(workspace_dir(series_name), "context.md");
+    is_new = not os.path.exists(path);
+    with open(path, "a") as fh {
+        if is_new {
+            fh.write(f"# Backchannel context - {series_name}\n\n");
+            fh.write("Written automatically after each session. Read back as PRIOR_MEETING\n");
+            fh.write("evidence in future sessions. Safe to edit by hand.\n");
+        }
+        fh.write(f"\n## Session of {started_at}\n\n{bullets.strip()}\n");
+        if decisions.strip() != "" {
+            fh.write(f"\n**Decisions:**\n{decisions.strip()}\n");
+        }
+    }
+}
+
+
+"""Every readable document in the series' docs/ drop-zone as (name, text)."""
+def list_workspace_docs(series_name: str) -> list[tuple] {
+    docs_dir = os.path.join(workspace_dir(series_name), "docs");
+    found: list[tuple] = [];
+    for fname in sorted(os.listdir(docs_dir)) {
+        lower = fname.lower();
+        if not (lower.endswith(".md") or lower.endswith(".txt") or lower.endswith(".markdown")) {
+            continue;
+        }
+        try {
+            with open(os.path.join(docs_dir, fname), "r") as fh {
+                found.append((fname, fh.read()));
+            }
+        } except Exception as e {
+            print(f"[backchannel] could not read {fname}: {str(e)}");
+        }
+    }
+    return found;
+}
