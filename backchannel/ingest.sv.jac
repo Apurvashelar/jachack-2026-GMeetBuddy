@@ -13,6 +13,7 @@ import from graph {
     MeetingSeries, Session, Utterance, Answer, Action, Doc, DocChunk,
     SessionSummary, now_ms, now_iso, get_series, get_live_session
 }
+import from answer { handle_wake, advance_summary }
 
 
 glob WAKE_PHRASES: list[str] = [
@@ -144,13 +145,19 @@ walker:pub IngestChunk {
             changed = True;
         }
 
+        # The trigger path: a lowercase substring scan. Zero model calls happen
+        # here unless a human actually said the phrase.
         ask = "";
+        routed: dict[any] = {};
         if changed and utt is not None {
             ask = detect_wake(utt.text);
+            if ask != "" {
+                routed = handle_wake(here, ask, utt.seq, utt.text);
+            }
         }
         report {
             "ok": True, "seq": utt.seq if utt is not None else -1,
-            "changed": changed, "wake": ask
+            "changed": changed, "wake": ask, "routed": routed
         };
     }
 }
@@ -196,6 +203,10 @@ walker:pub Tick {
     }
 
     can at_session with Session entry {
+        # Server-side summary cadence: the gate inside `advance_summary` means
+        # this is a no-op on most ticks.
+        advance_summary(here, False);
+
         fresh: list[dict[any]] = [];
         # Graph references come back in edge-creation order, which for utterances
         # IS seq order - no sort needed.
