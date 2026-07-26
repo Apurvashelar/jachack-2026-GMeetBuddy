@@ -97,7 +97,11 @@ cd backchannel
 jac run replay.jac            # scripted meeting streams into the graph
 ```
 
-Watch the dashboard. Full demo script and the live-Meet path: **[DEMO.md](DEMO.md)**.
+Watch the dashboard.
+
+- **New to this? Start with [GETTING_STARTED.md](GETTING_STARTED.md)** — step-by-step from
+  "where do I get an API key" to "what should appear on screen".
+- Demo script, deploy notes and submission checklist: **[DEMO.md](DEMO.md)**.
 
 Backchannel degrades instead of failing: with no `OPENAI_API_KEY` it falls back to deterministic
 keyword retrieval, and with no `GITHUB_PAT` the action adapter returns a dry-run receipt. Both paths
