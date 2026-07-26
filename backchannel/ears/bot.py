@@ -323,16 +323,40 @@ class AnswerWatcher(threading.Thread):
             time.sleep(2)
 
 
+SAY_VOICE = os.environ.get("BC_SAY_VOICE", "Samantha")
+
+
+def spoken_form(text, limit=420):
+    """Trim an answer down to something that sounds like speech.
+
+    Answers grounded in markdown documents can carry headings, bullets and code
+    fences. Read aloud (or pasted into chat) that is unlistenable noise, so
+    flatten it and cut at a sentence boundary.
+    """
+    flat = " ".join(str(text).split())
+    for junk in ("**", "__", "```", "`", "#", "|", "---"):
+        flat = flat.replace(junk, " ")
+    flat = " ".join(flat.split())
+    if len(flat) <= limit:
+        return flat
+    cut = flat[:limit]
+    for end in (". ", "! ", "? "):
+        idx = cut.rfind(end)
+        if idx > limit // 2:
+            return cut[: idx + 1]
+    return cut.rsplit(" ", 1)[0] + "..."
+
+
 def speak_answer(ans, voice):
     """Play one answer out loud. Never raises.
 
-    Preference order: the server-rendered mp3 (OpenAI tts-1) if it exists,
-    else macOS's built-in `say` - which is free, offline, and immune to API
-    quota problems.
+    Preference order: the server-rendered mp3 (OpenAI tts-1, natural sounding)
+    if it exists, else macOS `say` with a natural voice - free, offline, and
+    immune to API quota problems.
     """
     if voice == "off":
         return
-    text = str(ans.get("answer", ""))[:600]
+    text = spoken_form(ans.get("answer", ""))
     if not text:
         return
     mp3 = os.path.join("audio", f"answer-{ans.get('ts_ms')}.mp3")
@@ -352,15 +376,17 @@ def speak_answer(ans, voice):
                      "--audio-device=coreaudio/BlackHole 2ch", mp3],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
-                subprocess.Popen(["say", "-a", "BlackHole 2ch", text],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    ["say", "-a", "BlackHole 2ch", "-v", SAY_VOICE, "-r", "180", text],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:  # auto: this machine's speakers (fine when everyone is in the room)
             if os.path.exists(mp3):
                 subprocess.Popen(["afplay", mp3],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
-                subprocess.Popen(["say", text],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    ["say", "-v", SAY_VOICE, "-r", "180", text],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"  [bot] speaking ({voice}): {text[:80]}...")
     except Exception as exc:
         print(f"  [bot] speak failed: {exc}")
@@ -401,7 +427,7 @@ def deliver_answer(page, ans, args):
     speak_answer(ans, args.voice)
     if not args.no_chat:
         src = ans.get("source", "")
-        post_to_chat(page, f"[Backchannel · {src}] {ans.get('answer', '')}")
+        post_to_chat(page, f"[Backchannel · {src}] {spoken_form(ans.get('answer', ''), 500)}")
 
 
 def join_meet(page, meet_url, bot_name):

@@ -199,6 +199,95 @@ def select_chunks(question: str, chunks: list[str], top: int) -> list[str] {
 }
 
 
+"""Strip markdown so a retrieved span reads like speech, not a source file."""
+def clean_span(text: str) -> str {
+    out: list[str] = [];
+    for line in text.split("\n") {
+        stripped = line.strip();
+        # Drop headings, bullets, table rows, rules, code fences - none of it
+        # makes sense read aloud or pasted into a chat message.
+        if stripped == "" or stripped.startswith("#") or stripped.startswith("|")
+           or stripped.startswith("---") or stripped.startswith("```")
+           or stripped.startswith("- ") or stripped.startswith("* ") {
+            continue;
+        }
+        # Drop shell/code lines: a retrieved "cd backchannel && ./run.sh" read
+        # aloud is worse than saying nothing.
+        lowered_line = stripped.lower();
+        is_code = False;
+        for marker in ["$ ", "cd ", "curl ", "jac ", "python", "pip ", "npm ", "export ",
+                       "printf ", "brew ", "git ", "sudo ", "./", "=", "{", "}"] {
+            if lowered_line.startswith(marker) or marker in ["=", "{", "}"] and marker in stripped {
+                is_code = True;
+                break;
+            }
+        }
+        if is_code {
+            continue;
+        }
+        out.append(stripped);
+    }
+    joined = " ".join(out);
+    for junk in ["**", "__", "`", "> "] {
+        joined = joined.replace(junk, "");
+    }
+    return " ".join(joined.split());
+}
+
+
+"""Pick the sentences inside a span that actually mention the question's words.
+
+The old fallback returned the whole 1000-char chunk, which read aloud as a
+document dump. This returns at most two on-topic sentences."""
+def best_sentences(question: str, span: str) -> str {
+    cleaned = clean_span(span);
+    if cleaned == "" {
+        return "";
+    }
+    sentences: list[str] = [];
+    current = "";
+    for ch in cleaned {
+        current += ch;
+        if ch in ".!?" and len(current.strip()) > 30 {
+            sentences.append(current.strip());
+            current = "";
+        }
+    }
+    if len(current.strip()) > 30 {
+        sentences.append(current.strip());
+    }
+    # Keep only real prose: enough words to be a sentence someone would say.
+    prose: list[str] = [];
+    for sent in sentences {
+        if len(sent.split()) >= 6 {
+            prose.append(sent);
+        }
+    }
+    if len(prose) == 0 {
+        return "";
+    }
+    scored: list[tuple] = [];
+    for (i, sent) in enumerate(prose) {
+        scored.append((score_chunk(question, sent), -i, sent));
+    }
+    scored.sort(reverse=True);
+    picked: list[str] = [];
+    for row in scored[:2] {
+        if row[0] > 0 {
+            picked.append(str(row[2]));
+        }
+    }
+    if len(picked) == 0 {
+        # The surrounding span already matched the question (that is why it was
+        # selected), even if no single sentence repeats the keywords - a
+        # heading may have carried them. Lead with the span's opening prose
+        # rather than pretending we found nothing.
+        picked = [prose[0]];
+    }
+    return " ".join(picked)[:320];
+}
+
+
 """Deterministic fallback used when there is no API key or the model call fails.
 
 Scores the document, the live transcript and prior-meeting memory by keyword
@@ -238,9 +327,15 @@ def fallback_answer(question: str, chunks: list[str], transcript: str, prior: st
             source=SourceKind.UNKNOWN, quote=""
         );
     }
-    snippet = str(best[3]).strip()[:400];
+    snippet = best_sentences(question, str(best[3]));
+    if snippet == "" {
+        return GroundedAnswer(
+            answer="I could not find that in the loaded document, this meeting, or prior sessions.",
+            source=SourceKind.UNKNOWN, quote=""
+        );
+    }
     return GroundedAnswer(
-        answer=f"{str(best[2])}: {snippet[:220]}",
+        answer=f"{str(best[2])}: {snippet}",
         source=best[1] as SourceKind, quote=snippet[:200]
     );
 }
