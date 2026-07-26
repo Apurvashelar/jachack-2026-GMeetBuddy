@@ -1,0 +1,128 @@
+"""Backchannel - the graph IS the meeting.
+
+Every archetype here is root-reachable, so Jac's graph-native persistence keeps
+the whole meeting memory alive across server restarts with no database at all.
+
+    root --> MeetingSeries --> Session --> Utterance
+                           --> SessionSummary        (distilled cross-meeting memory)
+                           --> Doc --> DocChunk      (the grounding document)
+             Session --> Answer                      (persisted, cited verdicts)
+             Session --> Action                      (org-agent receipts)
+"""
+
+import time;
+import from datetime { datetime }
+
+
+node MeetingSeries {
+    """A recurring meeting. The anchor for memory that outlives one session."""
+
+    has name: str;
+}
+
+
+node Session {
+    """One capture run - a single sitting of the series."""
+
+    has started_at: str = "",
+        source: str = "replay",
+        live: bool = True,
+        summary: str = "",
+        summary_seq: int = 0,
+        summary_updated_at: float = 0.0,
+        next_seq: int = 0;
+}
+
+
+node Utterance {
+    """One caption line. Upserted by `caption_id`, newest `version` wins."""
+
+    has speaker: str,
+        text: str,
+        caption_id: str = "",
+        version: int = 0,
+        seq: int = 0,
+        ts_ms: int = 0;
+}
+
+
+node Answer {
+    """A grounded verdict, with the typed citation that produced it."""
+
+    has question: str,
+        answer: str,
+        source: str = "UNKNOWN",
+        quote: str = "",
+        seq: int = 0,
+        ts_ms: int = 0;
+}
+
+
+node Action {
+    """A receipt for something Backchannel did in the outside world."""
+
+    has kind: str,
+        payload: str,
+        result_url: str = "",
+        status: str = "pending",
+        detail: str = "",
+        seq: int = 0,
+        ts_ms: int = 0;
+}
+
+
+node SessionSummary {
+    """Distilled memory of a finished session, attached to the series."""
+
+    has bullets: str = "",
+        decisions: str = "",
+        started_at: str = "";
+}
+
+
+node Doc {
+    """The grounding document for a series (e.g. the paper under discussion)."""
+
+    has title: str;
+}
+
+
+node DocChunk {
+    has text: str,
+        idx: int = 0;
+}
+
+
+"""Milliseconds since the epoch, as an int."""
+def now_ms -> int {
+    return int(time.time() * 1000);
+}
+
+
+"""Human-readable wall clock for session labels."""
+def now_iso -> str {
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S");
+}
+
+
+"""Get-or-create the series. Without the filter-first check every request
+would graft a duplicate series onto root."""
+def get_series(series_name: str) -> MeetingSeries {
+    for s in [root -->[?:MeetingSeries]] {
+        if s.name == series_name {
+            return s;
+        }
+    }
+    return root ++> MeetingSeries(name=series_name);
+}
+
+
+"""Get-or-create the one open session hanging off this series."""
+def get_live_session(series: MeetingSeries) -> Session {
+    for sess in [series -->[?:Session]] {
+        if sess.live {
+            return sess;
+        }
+    }
+    return series ++> Session(started_at=now_iso(), live=True);
+}

@@ -1,0 +1,32 @@
+# Scripted demo transcript for Backchannel.
+# Format: Speaker|text   (blank lines and #-comments are ignored)
+# Lines beginning with a wake phrase are what trigger the copilot.
+
+Alice|Okay, let's get started. Everyone had a chance to look at the MTP paper?
+Bob|I skimmed it last night. The core pitch is that LLM integration should be a language construct, not a framework.
+Alice|Right, that's the "by" operator. You annotate a function signature and the body gets replaced by a model call.
+Bob|What I liked is that the types carry the meaning. You don't write a prompt, the signature is the prompt.
+Alice|They call that the meaning-typed intermediate representation, MT-IR.
+Bob|And there's a runtime piece that handles the response conversion back into the declared type.
+Alice|MT-Runtime, yeah. So the three contributions are the by operator, MT-IR, and MT-Runtime.
+Bob|I'm curious how much this actually saves in practice versus just using a prompting library.
+Alice|Hey Jac, how much faster did developers complete tasks using MTP in the user study?
+Bob|Nice, that's a real number to put in the deck.
+Alice|That matches what I remember. The lines-of-code reduction was the headline for me.
+Bob|Do we know how it behaves when the code is badly named though? That's my worry with meaning-typed anything.
+Alice|Hey Jac, is MTP robust to degraded naming conventions?
+Bob|Okay so it degrades gracefully. That's reassuring for real codebases.
+Alice|Let me push on something the paper probably does not cover.
+Bob|Hey Jac, what does the paper say about training throughput on TPU v5 pods?
+Alice|Ha, good, it admitted it doesn't know rather than making something up. That's exactly the behaviour we want.
+Bob|Honestly that's the part I'd show a customer. Confident hallucination is what kills these tools.
+Alice|Agreed. So decision one: we adopt the by-operator pattern for the classifier service.
+Bob|I'm on board. It replaces about four hundred lines of prompt plumbing.
+Alice|Decision two: we keep our own evaluation harness rather than trusting the paper's numbers directly.
+Bob|Fair. We should reproduce the user-study claim on our own task set before we cite it externally.
+Alice|Someone needs to own that. Can we track it?
+Bob|Hey Jac, file an issue to reproduce the MTP user study benchmark on our internal task set.
+Alice|Perfect, that's tracked now.
+Bob|Last thing, the paper is implemented in Jac which supersets Python, so adoption cost is low for us.
+Alice|That was my read too. Okay, let's wrap. Same time next week.
+Bob|Sounds good. I'll read the evaluation section properly before then.

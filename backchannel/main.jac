@@ -1,0 +1,20 @@
+"""Backchannel - a self-hosted Google Meet copilot whose brain is a Jac graph.
+
+Every endpoint the client or the ears can reach MUST be named in the import
+list below - a walker missing from here answers 405 no matter how correct it is.
+"""
+
+import from graph {
+    MeetingSeries, Session, Utterance, Answer, Action, Doc, DocChunk, SessionSummary
+}
+
+import from ingest { IngestChunk, Tick, LoadDoc }
+
+# Client-side UI
+cl {
+    import from .frontend { app as ClientApp }
+
+    def:pub app -> JsxElement {
+        return <ClientApp/>;
+    }
+}
