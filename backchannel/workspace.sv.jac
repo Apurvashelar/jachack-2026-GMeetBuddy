@@ -26,6 +26,26 @@ import os;
 
 glob MEETINGS_DIR: str = os.environ.get("BC_MEETINGS_DIR", "meetings");
 
+glob CHUNK_CHARS: int = 1000;
+
+
+"""Split a document into ~CHUNK_CHARS blocks on paragraph boundaries."""
+def chunk_text(text: str) -> list[str] {
+    chunks: list[str] = [];
+    current = "";
+    for para in text.split("\n\n") {
+        if len(current) + len(para) > CHUNK_CHARS and len(current) > 0 {
+            chunks.append(current.strip());
+            current = "";
+        }
+        current = current + para + "\n\n";
+    }
+    if len(current.strip()) > 0 {
+        chunks.append(current.strip());
+    }
+    return chunks;
+}
+
 
 """Filesystem-safe slug for a series name."""
 def series_slug(name: str) -> str {

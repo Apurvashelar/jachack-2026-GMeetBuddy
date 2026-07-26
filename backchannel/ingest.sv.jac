@@ -14,16 +14,15 @@ import from graph {
     SessionSummary, now_ms, now_iso, get_series, get_live_session
 }
 import from answer { handle_wake, advance_summary }
-import from workspace { list_workspace_docs, workspace_dir }
+import from workspace { list_workspace_docs, workspace_dir, chunk_text }
+import from slackbridge { slack_poll }
+import from adapters { fetch_repo_docs }
 import from botctl { bot_running, bot_log_tail }
 
 
 glob WAKE_PHRASES: list[str] = [
     "hey jac", "hey jack", "hey jak", "hey jacques", "hey check", "a jack"
 ];
-
-glob CHUNK_CHARS: int = 1000;
-
 
 """Deterministic wake-phrase detector.
 
@@ -66,24 +65,6 @@ def action_dict(a: Action) -> dict[any] {
         "result_url": a.result_url, "status": a.status,
         "detail": a.detail, "ts_ms": a.ts_ms
     };
-}
-
-
-"""Split a document into ~CHUNK_CHARS blocks on paragraph boundaries."""
-def chunk_text(text: str) -> list[str] {
-    chunks: list[str] = [];
-    current = "";
-    for para in text.split("\n\n") {
-        if len(current) + len(para) > CHUNK_CHARS and len(current) > 0 {
-            chunks.append(current.strip());
-            current = "";
-        }
-        current = current + para + "\n\n";
-    }
-    if len(current.strip()) > 0 {
-        chunks.append(current.strip());
-    }
-    return chunks;
 }
 
 
@@ -205,6 +186,15 @@ walker:pub Tick {
     }
 
     can at_session with Session entry {
+        # Slack side-channel: gated inside slack_poll to ~one pass per 8s and
+        # a no-op without SLACK_BOT_TOKEN. New files posted in the channel land
+        # in docs/ - reload them into the graph here.
+        if slack_poll(here) {
+            for s in [here <--[?:MeetingSeries]] {
+                reload_docs(s);
+            }
+        }
+
         # Server-side summary cadence: the gate inside `advance_summary` means
         # this is a no-op on most ticks.
         advance_summary(here, False);
@@ -251,6 +241,26 @@ walker:pub Tick {
 }
 
 
+"""Replace a series' graph docs with whatever is in its docs/ folder."""
+def reload_docs(series: MeetingSeries) -> list[str] {
+    found = list_workspace_docs(series.name);
+    for old in [series -->[?:Doc]] {
+        del old;
+    }
+    loaded: list[str] = [];
+    for row in found {
+        fname = row[0];
+        text = row[1];
+        doc = series ++> Doc(title=fname);
+        for (i, piece) in enumerate(chunk_text(text)) {
+            doc ++> DocChunk(text=piece, idx=i);
+        }
+        loaded.append(fname);
+    }
+    return loaded;
+}
+
+
 walker:pub SyncWorkspace {
     """Reload the series' grounding docs from its meetings/<slug>/docs/ folder.
 
@@ -268,26 +278,39 @@ walker:pub SyncWorkspace {
     }
 
     can at_series with MeetingSeries entry {
-        found = list_workspace_docs(self.series);
-        if len(found) == 0 {
+        loaded = reload_docs(here);
+        if len(loaded) == 0 {
             report {"ok": False, "loaded": [],
                     "error": f"No .md/.txt files in {workspace_dir(self.series)}/docs/"};
             disengage;
         }
-        for old in [here -->[?:Doc]] {
-            del old;
-        }
-        loaded: list[str] = [];
-        for row in found {
-            fname = row[0];
-            text = row[1];
-            doc = here ++> Doc(title=fname);
-            for (i, piece) in enumerate(chunk_text(text)) {
-                doc ++> DocChunk(text=piece, idx=i);
-            }
-            loaded.append(fname);
-        }
         report {"ok": True, "loaded": loaded};
+    }
+}
+
+
+walker:pub ImportOrgDocs {
+    """Pull the configured GitHub repo's README + root docs in as grounding
+    knowledge - the org-wiki integration, demoed with GitHub."""
+
+    has series: str,
+        reports: list[dict[any]] = [];
+
+    can at_root with Root entry {
+        visit get_series(self.series);
+    }
+
+    can at_series with MeetingSeries entry {
+        import os;
+        dest = os.path.join(workspace_dir(self.series), "docs");
+        saved = fetch_repo_docs(dest);
+        if len(saved) == 0 {
+            report {"ok": False, "loaded": [],
+                    "error": "Nothing fetched - set GITHUB_OWNER/GITHUB_REPO (and GITHUB_PAT for private repos)."};
+            disengage;
+        }
+        loaded = reload_docs(here);
+        report {"ok": True, "loaded": saved, "total_docs": len(loaded)};
     }
 }
 

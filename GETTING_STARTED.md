@@ -226,6 +226,54 @@ folder and context file then lives in Drive, synced and shareable with your coll
   top. **Do not debug this during your demo.** Fall back to `jac run replay.jac` and say "the same
   inlet, fed by a scripted meeting" — which is literally true.
 
+## Part 7.5 — Slack: the meeting's side-channel (10 min)
+
+Every meeting series gets its own Slack channel, auto-created as `#bc-<meeting-name>`.
+Colleagues drop documents there, ask the bot questions, and receive every in-meeting answer —
+without touching the dashboard.
+
+**Setup (~3 min):**
+
+1. Go to **https://api.slack.com/apps** → **Create New App** → **From a manifest**.
+2. Pick your workspace, paste the contents of `backchannel/slack_manifest.yaml`, create.
+3. **Install to Workspace** and approve.
+4. Copy the **Bot User OAuth Token** (starts `xoxb-`) into `.env`:
+
+```bash
+cd ~/Downloads/jachack-2026-GMeetBuddy/backchannel
+printf 'SLACK_BOT_TOKEN=xoxb-PASTE-YOURS
+' >> .env
+```
+
+5. Restart (`Ctrl-C`, `./run.sh`) and open the dashboard once — the first tick creates
+   `#bc-research-weekly-sync` in your Slack and posts a welcome message.
+
+**What works in the channel:**
+
+| You do | Backchannel does |
+|---|---|
+| Post a `.md`/`.txt` file | Ingests it as grounding material, confirms in-channel |
+| `@Backchannel <any question>` | Grounded answer with `[DOC]`/`[TRANSCRIPT]`/`[PRIOR_MEETING]`/`[UNKNOWN]` source |
+| `@Backchannel transcript` | Posts the live transcript tail |
+| `@Backchannel summarize` | Forces a summary revision and posts it |
+
+No public URL, no Socket Mode — it polls with your token from your laptop, so it works from a
+hackathon wifi. Replies take up to ~8 seconds (the poll interval).
+
+## Part 7.6 — Connect your org's knowledge (the repo/wiki demo)
+
+Click **IMPORT REPO DOCS** on the dashboard: Backchannel pulls the configured GitHub repo's
+README and root-level `.md` docs in as grounding knowledge (uses the same `GITHUB_OWNER` /
+`GITHUB_REPO` / `GITHUB_PAT` you set in Part 6). Then ask, in the Meet or in Slack:
+*"Hey Jac, what is this project's architecture?"* — and it answers **from your repo's own docs**,
+citing them.
+
+**How to pitch this honestly on stage:** "The GitHub importer and the issue-filing adapter are the
+same seam. An org would plug its internal wiki, MCP knowledge server, or internal LLM in here —
+the LLM itself is one env var away, since the model layer speaks to any OpenAI-compatible
+endpoint." Demo GitHub (real), pitch MCP (architecture). Do **not** claim a live internal-LLM
+integration exists — misrepresenting functionality is a disqualification offence.
+
 ## Part 8 — Deploying to JacHammer
 
 **Be honest with yourself about priorities:** the hackathon says hosting on jachammer.ai is

@@ -8,7 +8,7 @@ import from graph {
     MeetingSeries, Session, Utterance, Answer, Action, Doc, DocChunk, SessionSummary
 }
 
-import from ingest { IngestChunk, Tick, LoadDoc, SyncWorkspace }
+import from ingest { IngestChunk, Tick, LoadDoc, SyncWorkspace, ImportOrgDocs }
 
 import from answer { AnswerQuestion, ExecuteAction, EndSession, Summarize }
 

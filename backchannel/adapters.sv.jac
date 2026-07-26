@@ -88,6 +88,66 @@ def dispatch_action(title: str, series: str, quote: str) -> ActionReceipt {
 }
 
 
+"""Pull the org's knowledge into a meeting: the configured GitHub repo's
+README plus its root-level markdown docs, written into the series' docs/
+folder. This is the "connect your org's wiki" integration, demonstrated with
+GitHub because it is real and verifiable - an internal wiki or MCP-served
+knowledge base plugs into this exact seam."""
+def fetch_repo_docs(dest_dir: str) -> list[str] {
+    owner = os.environ.get("GITHUB_OWNER", "").strip();
+    repo = os.environ.get("GITHUB_REPO", "").strip();
+    if owner == "" or repo == "" {
+        return [];
+    }
+    headers = {"Accept": "application/vnd.github.raw"};
+    pat = os.environ.get("GITHUB_PAT", "").strip();
+    if pat != "" {
+        headers["Authorization"] = f"Bearer {pat}";
+    }
+    saved: list[str] = [];
+    try {
+        resp = requests.get(f"https://api.github.com/repos/{owner}/{repo}/readme",
+                            headers=headers, timeout=20);
+        if resp.status_code == 200 {
+            path = os.path.join(dest_dir, f"org-{repo}-README.md");
+            with open(path, "wb") as fh {
+                fh.write(resp.content);
+            }
+            saved.append(f"org-{repo}-README.md");
+        }
+        listing = requests.get(f"https://api.github.com/repos/{owner}/{repo}/contents/",
+                               headers={"Authorization": headers.get("Authorization", ""),
+                                        "Accept": "application/vnd.github+json"} if pat != ""
+                                       else {"Accept": "application/vnd.github+json"},
+                               timeout=20);
+        if listing.status_code == 200 {
+            count = 0;
+            for entry in listing.json() {
+                name = str(entry.get("name", ""));
+                if not name.lower().endswith(".md") or name.upper().startswith("README") {
+                    continue;
+                }
+                if count >= 5 {
+                    break;
+                }
+                raw = requests.get(str(entry.get("download_url", "")), timeout=20);
+                if raw.status_code == 200 {
+                    fname = f"org-{name}";
+                    with open(os.path.join(dest_dir, fname), "wb") as fh {
+                        fh.write(raw.content);
+                    }
+                    saved.append(fname);
+                    count += 1;
+                }
+            }
+        }
+    } except Exception as e {
+        print(f"[backchannel] repo docs fetch failed: {str(e)}");
+    }
+    return saved;
+}
+
+
 """Render an answer to an mp3 with OpenAI tts-1. Returns the path, or "" when
 TTS is unavailable - the dashboard's browser speech synthesis is the baseline
 voice and never depends on this."""

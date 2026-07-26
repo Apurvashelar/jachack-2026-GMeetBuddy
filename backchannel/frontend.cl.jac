@@ -16,7 +16,7 @@ import from react { useEffect }
 
 import from .components.Cards { AnswerCard, ActionCard, FeedLine, SourceBadge }
 
-sv import from ingest { Tick, SyncWorkspace }
+sv import from ingest { Tick, SyncWorkspace, ImportOrgDocs }
 sv import from answer { EndSession, Summarize }
 sv import from botctl { StartBot, StopBot }
 
@@ -141,6 +141,20 @@ def:pub app -> JsxElement {
         if result.reports and len(result.reports) > 0 {
             r: any = result.reports[0];
             botMsg = "Bot stopped." if bool(r["ok"]) else str(r["error"]);
+        }
+    }
+
+    async def importOrgDocs(e: MouseEvent) -> None {
+        syncMsg = "Importing repo docs...";
+        result = root spawn ImportOrgDocs(series=SERIES_NAME);
+        if result.reports and len(result.reports) > 0 {
+            r: any = result.reports[0];
+            if bool(r["ok"]) {
+                loaded = r["loaded"] as list[any];
+                syncMsg = "Imported " + str(len(loaded)) + " repo doc(s)";
+            } else {
+                syncMsg = str(r["error"]);
+            }
         }
     }
 
@@ -288,6 +302,14 @@ def:pub app -> JsxElement {
                                 "padding": "0.25rem 0.55rem", "fontSize": "0.68rem", "cursor": "pointer"
                             }}
                         >SYNC DOCS</button>
+                        <button
+                            onClick={importOrgDocs}
+                            style={{
+                                "background": "transparent", "border": "1px solid #2b3243",
+                                "color": "#a274ff", "borderRadius": "7px", "flexShrink": "0",
+                                "padding": "0.25rem 0.55rem", "fontSize": "0.68rem", "cursor": "pointer"
+                            }}
+                        >IMPORT REPO DOCS</button>
                     </div>
                     {if syncMsg != "" {
                         <p style={{"margin": "0.35rem 0 0", "color": "#8b93a7", "fontSize": "0.72rem"}}>{syncMsg}</p>

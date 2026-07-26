@@ -1,0 +1,31 @@
+# Backchannel Slack app manifest.
+#
+# Create the app in ~3 minutes:
+#   1. Go to https://api.slack.com/apps -> "Create New App" -> "From a manifest"
+#   2. Pick your workspace, paste this whole file, create.
+#   3. "Install to Workspace" (Settings -> Install App) and approve.
+#   4. Copy the "Bot User OAuth Token" (starts with xoxb-) into backchannel/.env:
+#        SLACK_BOT_TOKEN=xoxb-...
+#   5. Restart the server (./run.sh). The #bc-<meeting> channel appears on the
+#      first dashboard tick.
+display_information:
+  name: Backchannel
+  description: Self-hosted meeting copilot - grounded answers with typed citations
+  background_color: "#11151d"
+features:
+  bot_user:
+    display_name: Backchannel
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:manage      # auto-create #bc-<meeting>
+      - channels:read        # find the channel again
+      - channels:join        # join it if it already existed
+      - channels:history     # read questions and file posts (polling)
+      - chat:write           # post answers, transcripts, summaries
+      - files:read           # download docs posted to the channel
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
