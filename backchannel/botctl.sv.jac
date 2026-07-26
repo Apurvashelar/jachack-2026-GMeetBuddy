@@ -17,6 +17,10 @@ import subprocess;
 glob PID_FILE: str = ".jac/bot.pid";
 glob LOG_FILE: str = ".jac/bot.log";
 
+# The server's own python (the Jac runtime) doesn't have Playwright - the
+# user's system python does. Override with BC_BOT_PYTHON if yours differs.
+glob BOT_PYTHON: str = os.environ.get("BC_BOT_PYTHON", "/usr/bin/python3");
+
 
 """Read the tracked bot pid, 0 when none."""
 def bot_pid -> int {
@@ -93,7 +97,7 @@ walker:pub StartBot {
         try {
             logfh = open(LOG_FILE, "w");
             proc = subprocess.Popen(
-                ["python3", "ears/bot.py",
+                [BOT_PYTHON, "-u", "ears/bot.py",   # -u: unbuffered, so the log streams live
                  "--meet-url", url,
                  "--series", self.series,
                  "--brain", "http://localhost:8000",
