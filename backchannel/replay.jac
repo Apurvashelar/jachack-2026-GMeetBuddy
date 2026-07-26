@@ -48,13 +48,30 @@ def parse_script(raw: str) -> list[tuple] {
 
 
 """POST one walker spawn to the brain and return the decoded envelope."""
-def post_walker(name: str, body: dict[any]) -> dict[any] {
+def post_walker(name: str, body: dict[any]) -> any {
     resp = requests.post(f"{BRAIN}/walker/{name}", json=body, timeout=120);
     if resp.status_code != 200 {
         print(f"  ! {name} -> HTTP {resp.status_code}: {resp.text[:200]}");
         return {};
     }
     return resp.json();
+}
+
+
+"""Pull the report list out of a walker response envelope, typed."""
+def reports_of(env: any) -> list[dict[any]] {
+    out: list[dict[any]] = [];
+    if not env or "data" not in env {
+        return out;
+    }
+    data = env["data"];
+    if not data or "reports" not in data {
+        return out;
+    }
+    for r in data["reports"] {
+        out.append(r);
+    }
+    return out;
 }
 
 
@@ -70,7 +87,7 @@ def load_doc {
         "title": "MTP: A Meaning-Typed Language Abstraction for AI-Integrated Programming",
         "text": text
     });
-    reports = env.get("data", {}).get("reports", []);
+    reports = reports_of(env);
     if reports {
         print(f"  doc loaded: {reports[0].get('chunks')} chunks");
     }
@@ -91,12 +108,29 @@ def stream_script {
             "caption_id": f"replay-{i}", "version": 1,
             "ts_ms": elapsed, "source": "replay"
         });
-        reports = env.get("data", {}).get("reports", []);
-        wake = reports[0].get("wake", "") if reports else "";
+        # A wake hit spawns AnswerQuestion/ExecuteAction inline, and a nested
+        # walker's reports land in the SAME response stream ahead of the
+        # inlet's own - so scan for the report that carries the wake field
+        # rather than assuming slot 0.
+        wake = "";
+        detail = "";
+        for row in reports_of(env) {
+            if "wake" in row {
+                wake = str(row.get("wake", ""));
+            }
+            if row.get("kind") == "answer" {
+                detail = f"[{row.get('source')}] {str(row.get('answer'))[:150]}";
+            } elif row.get("kind") == "action" {
+                detail = f"[{row.get('status')}] {row.get('detail')}";
+            }
+        }
         marker = "  >>" if wake else "    ";
         print(f"{marker} {speaker}: {text}");
         if wake {
-            print(f"       ^ wake phrase fired, ask = {wake!r}");
+            print(f"       ^ wake fired, ask = {wake!r}");
+        }
+        if detail != "" {
+            print(f"       -> {detail}");
         }
         time.sleep(DELAY);
     }
