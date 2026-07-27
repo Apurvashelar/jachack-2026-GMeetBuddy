@@ -38,15 +38,36 @@ def transcript_of(session: Session, limit: int) -> str {
 }
 
 
-"""Collect the series' grounding-document chunks, in document order."""
+"""Retrievable chunks - the RAG corpus, filtered by relevance per question."""
 def doc_chunks_of(series: MeetingSeries) -> list[str] {
     chunks: list[str] = [];
     for d in [series -->[?:Doc]] {
+        if d.mode == "direct" {
+            continue;
+        }
         for c in [d -->[?:DocChunk]] {
             chunks.append(c.text);
         }
     }
     return chunks;
+}
+
+
+"""Pinned material, sent verbatim with every answer.
+
+Kept out of the retrieval path on purpose: a glossary or an agenda is short,
+always relevant, and must not depend on keyword overlap to be seen."""
+def direct_context_of(series: MeetingSeries) -> str {
+    blocks: list[str] = [];
+    for d in [series -->[?:Doc]] {
+        if d.mode != "direct" {
+            continue;
+        }
+        for c in [d -->[?:DocChunk]] {
+            blocks.append(f"[{d.title}]\n{c.text}");
+        }
+    }
+    return "\n\n".join(blocks);
 }
 
 
@@ -100,7 +121,8 @@ walker AnswerQuestion {
         }
         transcript = transcript_of(here, TRANSCRIPT_WINDOW);
 
-        verdict = safe_answer(self.question, chunks, transcript, prior);
+        direct = direct_context_of(series) if series is not None else "";
+        verdict = safe_answer(self.question, chunks, transcript, prior, direct);
 
         node_answer = here ++> Answer(
             question=self.question,

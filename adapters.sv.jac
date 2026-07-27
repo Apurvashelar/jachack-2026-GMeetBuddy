@@ -121,10 +121,18 @@ def fetch_repo_docs(dest_dir: str) -> list[str] {
                                        else {"Accept": "application/vnd.github+json"},
                                timeout=20);
         if listing.status_code == 200 {
+            # Backchannel's own docs describe the demo script (including the
+            # deliberately-unanswerable question), so importing them would let
+            # the bot answer from its own stage directions. Never ingest them.
+            skip_names = ["demo.md", "getting_started.md", "pla.md", "contributing.md",
+                          "code_of_conduct.md", "changelog.md", "license.md"];
             count = 0;
             for entry in listing.json() {
                 name = str(entry.get("name", ""));
                 if not name.lower().endswith(".md") or name.upper().startswith("README") {
+                    continue;
+                }
+                if name.lower() in skip_names {
                     continue;
                 }
                 if count >= 5 {

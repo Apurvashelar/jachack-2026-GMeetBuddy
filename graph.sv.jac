@@ -83,9 +83,19 @@ node SessionSummary {
 
 
 node Doc {
-    """The grounding document for a series (e.g. the paper under discussion)."""
+    """A grounding document for a series.
 
-    has title: str;
+    `mode` decides how it reaches the model:
+      "rag"    - chunked and retrieved by relevance. For big corpora: papers,
+                 wikis, specs. Only the matching pieces are sent.
+      "direct" - injected verbatim into every answer. For the short, always-
+                 relevant things: the agenda, a glossary, "we are the payments
+                 team and X means Y here". Never filtered out by a bad keyword
+                 match, which is exactly why it exists.
+    """
+
+    has title: str,
+        mode: str = "rag";
 }
 
 

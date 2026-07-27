@@ -1,7 +1,8 @@
+[project]
 name = "backchannel"
 version = "0.1.0"
 description = "A full-stack Jac application"
-entry-point = "backchannel/main.jac"
+entry-point = "main.jac"
 kind = "web-app"
 jac-version = "==0.34.7"
 
@@ -34,7 +35,3 @@ base_route_app = "app"
 
 [byllm.model]
 default_model = "gpt-4o-mini"
-
-[jacpack]
-name = 'backchannel'
-description = 'Jac IDE snapshot for backchannel'

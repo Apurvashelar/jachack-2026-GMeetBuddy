@@ -1,0 +1,579 @@
+/* Backchannel - broadcast talkback console.
+ *
+ * "Backchannel" is the crew's private comms line during a live show, so the
+ * interface is built as studio equipment: a status rail that reads at a glance
+ * from across a room, letterspaced mono labels like silkscreen on a rack unit,
+ * and a program feed you monitor rather than read.
+ *
+ * Provenance colour is semantic and deliberately separate from the amber brand
+ * accent. UNKNOWN is a calm neutral, never a warning - an honest "not in the
+ * context" is the behaviour we want to celebrate, not flag as an error.
+ */
+
+:root {
+  /* ground + structure */
+  --ink: #0e1116;
+  --panel: #151a21;
+  --panel-2: #1b212a;
+  --line: #262e3a;
+  --line-soft: #1e242e;
+
+  /* type */
+  --fg: #eef2f7;
+  --fg-muted: #97a1b0;
+  --fg-dim: #67717f;
+
+  /* brand accent - tungsten, the warm glow of studio gear */
+  --signal: #e9a23b;
+  --signal-dim: #8a6120;
+
+  /* semantic: provenance of an answer */
+  --src-doc: #57a6f0;
+  --src-transcript: #43cf8e;
+  --src-prior: #b08bf0;
+  --src-unknown: #8a93a3;
+
+  /* semantic: state */
+  --live: #43cf8e;
+  --alert: #ec6a52;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ink: #eef0f2;
+    --panel: #ffffff;
+    --panel-2: #f5f7f9;
+    --line: #d7dde4;
+    --line-soft: #e6eaef;
+    --fg: #10151b;
+    --fg-muted: #55606e;
+    --fg-dim: #7c8794;
+    --signal: #a96c05;
+    --signal-dim: #e0b571;
+    --src-doc: #1d6fc4;
+    --src-transcript: #10814f;
+    --src-prior: #6f43c0;
+    --src-unknown: #6b7480;
+    --live: #10814f;
+    --alert: #c0392b;
+  }
+}
+
+/* The viewer's theme toggle stamps data-theme on the root and must win over
+   the media query in both directions. */
+:root[data-theme="dark"] {
+  --ink: #0e1116; --panel: #151a21; --panel-2: #1b212a;
+  --line: #262e3a; --line-soft: #1e242e;
+  --fg: #eef2f7; --fg-muted: #97a1b0; --fg-dim: #67717f;
+  --signal: #e9a23b; --signal-dim: #8a6120;
+  --src-doc: #57a6f0; --src-transcript: #43cf8e;
+  --src-prior: #b08bf0; --src-unknown: #8a93a3;
+  --live: #43cf8e; --alert: #ec6a52;
+}
+
+:root[data-theme="light"] {
+  --ink: #eef0f2; --panel: #ffffff; --panel-2: #f5f7f9;
+  --line: #d7dde4; --line-soft: #e6eaef;
+  --fg: #10151b; --fg-muted: #55606e; --fg-dim: #7c8794;
+  --signal: #a96c05; --signal-dim: #e0b571;
+  --src-doc: #1d6fc4; --src-transcript: #10814f;
+  --src-prior: #6f43c0; --src-unknown: #6b7480;
+  --live: #10814f; --alert: #c0392b;
+}
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+.bc-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------------- status rail
+   Reads from across the room: the only place with the live indicator. */
+
+.bc-rail {
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  padding: 0.8rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.bc-wordmark {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.bc-wordmark span {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.bc-rail-spacer { flex: 1 1 auto; }
+
+/* Stat cluster - tabular figures so the numbers do not jitter as they climb. */
+.bc-stats {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.bc-stat { display: flex; flex-direction: column; gap: 0.15rem; }
+
+.bc-stat dt {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin: 0;
+}
+
+.bc-stat dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
+.bc-onair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.bc-onair.is-live { color: var(--live); background: color-mix(in srgb, var(--live) 12%, transparent); }
+.bc-onair.is-off  { color: var(--fg-dim); }
+
+.bc-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.bc-onair.is-live .bc-dot { animation: bc-pulse 2s ease-in-out infinite; }
+
+@keyframes bc-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+  50%      { opacity: 0.55; box-shadow: 0 0 0 4px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bc-onair.is-live .bc-dot { animation: none; }
+  * { transition: none !important; }
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.bc-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem 1.25rem 1.5rem;
+  align-items: start;
+  max-width: 1500px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+@media (max-width: 980px) {
+  .bc-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+.bc-col { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+
+.bc-module {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.bc-module-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--panel-2);
+}
+
+.bc-module-head h2 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.bc-module-head .bc-rail-spacer { flex: 1; }
+.bc-module-body { padding: 0.9rem; }
+.bc-scroll { overflow-y: auto; }
+.bc-feed-scroll { max-height: 64vh; }
+.bc-verdict-scroll { max-height: 46vh; }
+
+/* -------------------------------------------------------------- program feed
+   A monitored stream: timecode in the gutter, cues called out. */
+
+.bc-line {
+  display: grid;
+  grid-template-columns: 3.6rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border-left: 2px solid transparent;
+}
+
+.bc-line + .bc-line { margin-top: 0.1rem; }
+
+.bc-time {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  padding-top: 0.15rem;
+}
+
+.bc-speaker {
+  font-weight: 650;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  margin-right: 0.4rem;
+}
+
+.bc-said { font-size: 0.88rem; line-height: 1.55; color: var(--fg); }
+
+/* A wake phrase is a CUE - the moment the room addressed the system. */
+.bc-line.is-cue {
+  background: color-mix(in srgb, var(--signal) 10%, transparent);
+  border-left-color: var(--signal);
+}
+
+.bc-line.is-cue .bc-speaker { color: var(--signal); }
+
+.bc-cue-tag {
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--signal);
+  margin-right: 0.45rem;
+}
+
+/* ----------------------------------------------------------------- verdicts
+   The provenance stripe is the point: colour encodes where evidence came from. */
+
+.bc-verdict {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--src);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 0.75rem 0.85rem;
+}
+
+.bc-verdict + .bc-verdict { margin-top: 0.6rem; }
+
+.bc-verdict-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.bc-chip {
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--src);
+  color: var(--src);
+  background: color-mix(in srgb, var(--src) 12%, transparent);
+  white-space: nowrap;
+}
+
+/* UNKNOWN is not a failure - dashed, uncoloured, calm. */
+.bc-chip.is-unknown { border-style: dashed; background: transparent; }
+
+.bc-question {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  margin: 0 0 0.4rem;
+  line-height: 1.45;
+}
+
+.bc-answer { font-size: 0.95rem; line-height: 1.55; margin: 0; color: var(--fg); }
+
+.bc-quote {
+  margin: 0.6rem 0 0;
+  padding: 0.4rem 0 0.4rem 0.7rem;
+  border-left: 2px solid var(--line);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+  font-style: italic;
+}
+
+.bc-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--src-doc);
+  word-break: break-all;
+}
+
+/* ----------------------------------------------------------------- controls */
+
+.bc-controls { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+.bc-input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  color: var(--fg);
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.bc-input::placeholder { color: var(--fg-dim); }
+.bc-input:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+
+.bc-btn {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  white-space: nowrap;
+}
+
+.bc-btn:hover { border-color: var(--signal); color: var(--signal); }
+.bc-btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+
+.bc-btn.is-primary {
+  border-color: var(--signal);
+  color: var(--signal);
+  background: color-mix(in srgb, var(--signal) 12%, transparent);
+}
+
+.bc-btn.is-danger { border-color: var(--alert); color: var(--alert); }
+.bc-btn.is-on { border-color: var(--live); color: var(--live); }
+
+.bc-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--signal);
+}
+
+.bc-log {
+  margin: 0.5rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bc-sources {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line-soft);
+  flex-wrap: wrap;
+}
+
+.bc-source-list {
+  flex: 1 1 10rem;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------- summary + memory */
+
+.bc-summary {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.86rem;
+  line-height: 1.65;
+  color: var(--fg);
+}
+
+.bc-memory-block + .bc-memory-block {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.bc-memory-when {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  color: var(--src-prior);
+  margin-bottom: 0.3rem;
+}
+
+.bc-memory-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+
+/* Empty states teach the operator what to do next. */
+.bc-empty {
+  margin: 0;
+  font-size: 0.83rem;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+.bc-empty code {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--signal);
+  background: color-mix(in srgb, var(--signal) 10%, transparent);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+
+.bc-foot {
+  padding: 0 1.25rem 1.5rem;
+  max-width: 1500px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+}
+
+/* ------------------------------------------------------- knowledge sections
+   Two ways in, and the interface should make the difference obvious: material
+   that is SEARCHED versus material that is ALWAYS PRESENT. */
+
+.bc-source-group + .bc-source-group {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.bc-source-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bc-source-kind {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--src-doc);
+}
+
+.bc-source-kind.is-pinned { color: var(--signal); }
+
+.bc-source-hint {
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+}
+
+.bc-textarea {
+  resize: vertical;
+  min-height: 3.2rem;
+  font-family: var(--font-ui);
+  line-height: 1.5;
+}
+
+.bc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.bc-tag {
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  color: var(--fg-muted);
+  background: var(--ink);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bc-tag.is-pinned { border-color: var(--signal-dim); color: var(--signal); }
+.bc-tag.is-empty { border-style: dashed; color: var(--fg-dim); }

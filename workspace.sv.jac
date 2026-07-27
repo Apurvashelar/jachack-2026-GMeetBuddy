@@ -65,6 +65,7 @@ def series_slug(name: str) -> str {
 def workspace_dir(series_name: str) -> str {
     path = os.path.join(MEETINGS_DIR, series_slug(series_name));
     os.makedirs(os.path.join(path, "docs"), exist_ok=True);
+    os.makedirs(os.path.join(path, "pinned"), exist_ok=True);
     return path;
 }
 
@@ -99,21 +100,30 @@ def append_context_file(series_name: str, started_at: str, bullets: str, decisio
 }
 
 
-"""Every readable document in the series' docs/ drop-zone as (name, text)."""
+"""Every readable document in a series' workspace as (name, text, mode).
+
+Scans both drop-zones: `docs/` is retrieved by relevance, `pinned/` is sent
+with every single answer."""
 def list_workspace_docs(series_name: str) -> list[tuple] {
-    docs_dir = os.path.join(workspace_dir(series_name), "docs");
+    base = workspace_dir(series_name);
     found: list[tuple] = [];
-    for fname in sorted(os.listdir(docs_dir)) {
-        lower = fname.lower();
-        if not (lower.endswith(".md") or lower.endswith(".txt") or lower.endswith(".markdown")) {
+    for (folder, mode) in [("docs", "rag"), ("pinned", "direct")] {
+        folder_path = os.path.join(base, folder);
+        if not os.path.isdir(folder_path) {
             continue;
         }
-        try {
-            with open(os.path.join(docs_dir, fname), "r") as fh {
-                found.append((fname, fh.read()));
+        for fname in sorted(os.listdir(folder_path)) {
+            lower = fname.lower();
+            if not (lower.endswith(".md") or lower.endswith(".txt") or lower.endswith(".markdown")) {
+                continue;
             }
-        } except Exception as e {
-            print(f"[backchannel] could not read {fname}: {str(e)}");
+            try {
+                with open(os.path.join(folder_path, fname), "r") as fh {
+                    found.append((fname, fh.read(), mode));
+                }
+            } except Exception as e {
+                print(f"[backchannel] could not read {fname}: {str(e)}");
+            }
         }
     }
     return found;

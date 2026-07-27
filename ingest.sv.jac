@@ -17,6 +17,7 @@ import from answer { handle_wake, advance_summary }
 import from workspace { list_workspace_docs, workspace_dir, chunk_text }
 import from slackbridge { slack_poll }
 import from adapters { fetch_repo_docs }
+import from sources { find_urls, ingest_url, ingest_text }
 import from botctl { bot_running, bot_log_tail }
 
 
@@ -84,7 +85,7 @@ walker:pub IngestChunk {
         text: str = "",
         caption_id: str = "",
         version: int = 0,
-        ts_ms: int = 0,
+        ts_ms: int = -1,
         source: str = "replay",
         final: bool = True,
         reports: list[dict[any]] = [];
@@ -103,8 +104,10 @@ walker:pub IngestChunk {
         if cid == "" {
             cid = f"auto-{here.next_seq}";
         }
+        # -1 means "the ears did not supply a timestamp"; 0 is a real value
+        # (the first line of a replay) and must not be overwritten.
         stamp = self.ts_ms;
-        if stamp == 0 {
+        if stamp < 0 {
             stamp = now_ms();
         }
 
@@ -168,6 +171,7 @@ walker:pub Tick {
         after_seq: int = -1,
         memory_cache: list[dict[any]] = [],
         doc_titles: list[str] = [],
+        pinned_titles: list[str] = [],
         doc_chunks: int = 0,
         reports: list[dict[any]] = [];
 
@@ -184,13 +188,19 @@ walker:pub Tick {
             });
         }
         titles: list[str] = [];
+        pinned: list[str] = [];
         chunk_count = 0;
         for d in [here -->[?:Doc]] {
-            titles.append(d.title);
+            if d.mode == "direct" {
+                pinned.append(d.title);
+            } else {
+                titles.append(d.title);
+            }
             chunk_count += len([d -->[?:DocChunk]]);
         }
         self.memory_cache = memory;
         self.doc_titles = titles;
+        self.pinned_titles = pinned;
         self.doc_chunks = chunk_count;
         visit get_live_session(here);
     }
@@ -242,6 +252,7 @@ walker:pub Tick {
             "total": here.next_seq,
             "memory": self.memory_cache,
             "doc_titles": self.doc_titles,
+            "pinned_titles": self.pinned_titles,
             "doc_chunks": self.doc_chunks,
             "bot_running": bot_running(),
             "bot_log": bot_log_tail(2),
@@ -257,13 +268,20 @@ def reload_docs(series: MeetingSeries) -> list[str] {
     for old in [series -->[?:Doc]] {
         del old;
     }
+    # Both drop-zones are rescanned above, so a full replace is correct here.
     loaded: list[str] = [];
     for row in found {
-        fname = row[0];
-        text = row[1];
-        doc = series ++> Doc(title=fname);
-        for (i, piece) in enumerate(chunk_text(text)) {
-            doc ++> DocChunk(text=piece, idx=i);
+        fname = str(row[0]);
+        text = str(row[1]);
+        mode = str(row[2]);
+        doc = series ++> Doc(title=fname, mode=mode);
+        # A pinned doc is never chunked for retrieval - it is sent whole.
+        if mode == "direct" {
+            doc ++> DocChunk(text=text, idx=0);
+        } else {
+            for (i, piece) in enumerate(chunk_text(text)) {
+                doc ++> DocChunk(text=piece, idx=i);
+            }
         }
         loaded.append(fname);
     }
@@ -295,6 +313,51 @@ walker:pub SyncWorkspace {
             disengage;
         }
         report {"ok": True, "loaded": loaded};
+    }
+}
+
+
+walker:pub AddSource {
+    """Add knowledge from the dashboard.
+
+    Two shapes, deliberately distinct:
+      mode="rag"    - a URL, fetched and chunked, retrieved when relevant
+      mode="direct" - text (or a URL) pinned into every single answer
+    """
+
+    has series: str,
+        mode: str = "rag",
+        url: str = "",
+        text: str = "",
+        title: str = "briefing",
+        reports: list[dict[any]] = [];
+
+    can at_root with Root entry {
+        visit get_series(self.series);
+    }
+
+    can at_series with MeetingSeries entry {
+        added: list[str] = [];
+        for u in find_urls(self.url + " " + self.text) {
+            name = ingest_url(self.series, u, self.mode);
+            if name != "" {
+                added.append(name);
+            }
+        }
+        # Literal text only makes sense as direct context - retrieval over a
+        # single pasted paragraph would be theatre.
+        if self.mode == "direct" and self.text.strip() != "" and len(find_urls(self.text)) == 0 {
+            name = ingest_text(self.series, self.title, self.text);
+            if name != "" {
+                added.append(name);
+            }
+        }
+        if len(added) == 0 {
+            report {"ok": False, "error": "Nothing usable - give me a URL, or text to pin."};
+            disengage;
+        }
+        loaded = reload_docs(here);
+        report {"ok": True, "added": added, "total": len(loaded)};
     }
 }
 
@@ -338,10 +401,14 @@ walker:pub LoadDoc {
     }
 
     can at_series with MeetingSeries entry {
+        # Replace only the retrievable corpus - pinned briefings are curated by
+        # hand and must survive a doc reload.
         for old in [here -->[?:Doc]] {
-            del old;
+            if old.mode != "direct" {
+                del old;
+            }
         }
-        doc = here ++> Doc(title=self.title);
+        doc = here ++> Doc(title=self.title, mode="rag");
         pieces = chunk_text(self.text);
         for (i, piece) in enumerate(pieces) {
             doc ++> DocChunk(text=piece, idx=i);

@@ -98,9 +98,10 @@ sem SessionDistill.decisions = "Newline-separated decisions the group actually c
 
 sem answer_question = """You are a meeting copilot answering a question asked out loud, mid-meeting.
 
-Answer ONLY from the three context blocks provided. Prefer the document when it
-covers the question; otherwise the live transcript; otherwise prior-meeting
-memory. If none of them contain the answer, you MUST set source=UNKNOWN and say
+Answer ONLY from the context blocks provided. A section marked PINNED BRIEFING
+is material the team pinned to this meeting - treat it as authoritative and
+prefer it when it conflicts with anything else. Otherwise prefer the document,
+then the live transcript, then prior-meeting memory. If none of them contain the answer, you MUST set source=UNKNOWN and say
 plainly that the context does not cover it - never guess, never fill the gap
 from your own knowledge. Set `quote` to a real span you copied from whichever
 block you used.
@@ -246,12 +247,19 @@ def best_sentences(question: str, span: str) -> str {
     }
     sentences: list[str] = [];
     current = "";
-    for ch in cleaned {
+    for (i, ch) in enumerate(cleaned) {
         current += ch;
-        if ch in ".!?" and len(current.strip()) > 30 {
-            sentences.append(current.strip());
-            current = "";
+        if ch not in ".!?" or len(current.strip()) <= 30 {
+            continue;
         }
+        # Not a sentence end if a digit follows the dot ("3.2x faster") or the
+        # next character is not a space.
+        nxt = cleaned[i + 1] if i + 1 < len(cleaned) else " ";
+        if ch == "." and (nxt.isdigit() or nxt != " ") {
+            continue;
+        }
+        sentences.append(current.strip());
+        current = "";
     }
     if len(current.strip()) > 30 {
         sentences.append(current.strip());
@@ -342,11 +350,20 @@ def fallback_answer(question: str, chunks: list[str], transcript: str, prior: st
 
 
 """Answer a question, degrading to keyword retrieval rather than failing."""
-def safe_answer(question: str, chunks: list[str], transcript: str, prior: str) -> GroundedAnswer {
+def safe_answer(question: str, chunks: list[str], transcript: str, prior: str,
+                pinned: str = "") -> GroundedAnswer {
     if not HAS_LLM {
-        return fallback_answer(question, chunks, transcript, prior);
+        # Pinned material is short and always relevant, so it goes in front of
+        # the retrieved chunks even on the no-model path.
+        return fallback_answer(question, ([pinned] + chunks) if pinned.strip() != "" else chunks,
+                               transcript, prior);
     }
-    excerpts = "\n\n---\n\n".join(select_chunks(question, chunks, 4));
+    excerpts: str = "\n\n---\n\n".join(select_chunks(question, chunks, 4));
+    # Pinned material leads the document block and is labelled, so the model
+    # sees it on every question regardless of keyword overlap.
+    if pinned.strip() != "" {
+        excerpts = f"[PINNED BRIEFING - authoritative for this meeting]\n{pinned}\n\n---\n\n{excerpts}";
+    }
     try {
         return answer_question(
             question,
@@ -356,7 +373,8 @@ def safe_answer(question: str, chunks: list[str], transcript: str, prior: str) -
         );
     } except Exception as e {
         print(f"[backchannel] answer_question failed, falling back: {str(e)}");
-        return fallback_answer(question, chunks, transcript, prior);
+        return fallback_answer(question, ([pinned] + chunks) if pinned.strip() != "" else chunks,
+                               transcript, prior);
     }
 }
 

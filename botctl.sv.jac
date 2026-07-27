@@ -22,6 +22,39 @@ glob LOG_FILE: str = ".jac/bot.log";
 glob BOT_PYTHON: str = os.environ.get("BC_BOT_PYTHON", "/usr/bin/python3");
 
 
+"""Can this server actually run the Meet bot?
+
+The bot is a headed Chromium window driven by Playwright - it needs a display
+and the playwright package. A hosted deploy (JacHammer, k8s) has neither, so
+detect that up front and explain it, rather than letting the subprocess die
+with a bare "missing dependency" line."""
+def bot_capability -> str {
+    if os.environ.get("BC_ALLOW_BOT", "1") == "0" {
+        return "Bot launching is disabled on this server (BC_ALLOW_BOT=0).";
+    }
+    if not os.path.exists(BOT_PYTHON) {
+        return f"No python interpreter at {BOT_PYTHON}. Set BC_BOT_PYTHON.";
+    }
+    probe = subprocess.run(
+        [BOT_PYTHON, "-c", "import playwright, requests"],
+        capture_output=True, timeout=30
+    );
+    if probe.returncode != 0 {
+        return ("Playwright is not installed for this server's python, so the "
+                "Meet bot cannot run here. This is expected on a hosted deploy "
+                "- the bot needs a real display. Run Backchannel locally to "
+                "send a bot into a meeting; the hosted app still ingests "
+                "transcripts, answers questions and serves Slack.");
+    }
+    if not os.environ.get("DISPLAY", "") and os.uname().sysname == "Linux" {
+        return ("No display available on this server (headless Linux), so a "
+                "headed Chromium cannot start. Run Backchannel locally to "
+                "send a bot into a meeting.");
+    }
+    return "";
+}
+
+
 """Read the tracked bot pid, 0 when none."""
 def bot_pid -> int {
     if not os.path.exists(PID_FILE) {
@@ -77,8 +110,9 @@ walker:pub StartBot {
         reports: list[dict[any]] = [];
 
     can run with Root entry {
-        if os.environ.get("BC_ALLOW_BOT", "1") == "0" {
-            report {"ok": False, "error": "Bot launch disabled on this server (BC_ALLOW_BOT=0)."};
+        blocked = bot_capability();
+        if blocked != "" {
+            report {"ok": False, "error": blocked};
             disengage;
         }
         if bot_running() {

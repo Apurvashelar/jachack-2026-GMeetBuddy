@@ -1,3 +1,11 @@
+.jac/
+node_modules/
+.vscode/
+.idea/
 
-# planning notes stay local
-pla.md
+# secrets
+.env
+audio/
+
+# meeting workspaces stay local (context files may hold private meeting content)
+meetings/
