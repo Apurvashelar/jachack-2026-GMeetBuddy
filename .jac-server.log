@@ -1,0 +1,47 @@
+  ✔ Initial client compilation completed
+INFO - Admin portal endpoints registered at /admin
+INFO - LLM telemetry: litellm CustomLogger registered
+INFO - LLM telemetry: byllm agent callback registered
+INFO - LLM telemetry endpoints registered: /admin/llm/telemetry/{summary,traces,traces/{id},filters}
+INFO - Log query endpoints registered: /admin/logs/{,services,trace/{id}}
+INFO - Trace query endpoints registered: /admin/traces/{,services,{id}}
+INFO - Ops self-check endpoint registered: /admin/ops/health
+INFO - Deploy-health endpoint registered: /admin/ops/deploy
+INFO - Network endpoint registered: /admin/ops/network
+INFO - Pod-env endpoint registered: /admin/ops/podenv
+INFO - No emailer provider configured - email features disabled. Set [scale.emailer] provider = 'smtp' (or a custom 'module.path:ClassName') in jac.toml to enable.
+INFO - Initializing scheduler subsystem
+INFO - APScheduler not installed — dynamic scheduling disabled. Enable the 'scheduler' capability and run 'jac install'.
+INFO - No static scheduled tasks registered
+INFO - Scheduler subsystem ready
+  Port 8001 is in use, using port 8002 instead
+  VITE v6.4.3  ready in 855 ms
+
+  ✔ Vite dev server ready
+
+  jac dev server v0.34.7
+
+  ➜  Local:     http://localhost:8003/
+  ➜  Network:   http://10.20.118.151:8003/
+
+  Server ready
+
+  Mode: Development (with HMR)
+    App:  http://localhost:8003/
+    API:  http://localhost:8002/
+
+👀 Watching for changes...
+   Monitoring: **/*.jac (26 files)
+
+12:51:55 AM [vite] http proxy error: /walker/Tick
+Error: ECONNREFUSED
+    at <anonymous> (node:_http_client:251:28)
+    at processTicksAndRejections (native:7:39)
+{'series': 'Research Weekly Sync', 'utterances': [], 'cursor': -1, 'summary': '', 'summary_seq': 0, 'answers': [], 'actions': [], 'live': True, 'started_at': '2026-07-27 00:45:39', 'source': 'replay', 'total': 0, 'memory': [], 'doc_titles': [], 'doc_chunks': 0, 'bot_running': False, 'bot_log': '', 'workspace': 'meetings/research-weekly-sync'}
+{"ts": "2026-07-27T00:51:57.214433Z", "level": "INFO", "service": "unknown", "trace_id": null, "msg": "127.0.0.1:57878 - \"POST /walker/Tick HTTP/1.1\" 200"}
+{'series': 'Research Weekly Sync', 'utterances': [], 'cursor': -1, 'summary': '', 'summary_seq': 0, 'answers': [], 'actions': [], 'live': True, 'started_at': '2026-07-27 00:45:39', 'source': 'replay', 'total': 0, 'memory': [], 'doc_titles': [], 'doc_chunks': 0, 'bot_running': False, 'bot_log': '', 'workspace': 'meetings/research-weekly-sync'}
+{"ts": "2026-07-27T00:51:59.139587Z", "level": "INFO", "service": "unknown", "trace_id": null, "msg": "127.0.0.1:57884 - \"POST /walker/Tick HTTP/1.1\" 200"}
+{'series': 'Research Weekly Sync', 'utterances': [], 'cursor': -1, 'summary': '', 'summary_seq': 0, 'answers': [], 'actions': [], 'live': True, 'started_at': '2026-07-27 00:45:39', 'source': 'replay', 'total': 0, 'memory': [], 'doc_titles': [], 'doc_chunks': 0, 'bot_running': False, 'bot_log': '', 'workspace': 'meetings/research-weekly-sync'}
+{"ts": "2026-07-27T00:52:01.140669Z", "level": "INFO", "service": "unknown", "trace_id": null, "msg": "127.0.0.1:57896 - \"POST /walker/Tick HTTP/1.1\" 200"}
+{'series': 'Research Weekly Sync', 'utterances': [], 'cursor': -1, 'summary': '', 'summary_seq': 0, 'answers': [], 'actions': [], 'live': True, 'started_at': '2026-07-27 00:45:39', 'source': 'replay', 'total': 0, 'memory': [], 'doc_titles': [], 'doc_chunks': 0, 'bot_running': False, 'bot_log': '', 'workspace': 'meetings/research-weekly-sync'}
+{"ts": "2026-07-27T00:52:03.136627Z", "level": "INFO", "service": "unknown", "trace_id": null, "msg": "127.0.0.1:54736 - \"POST /walker/Tick HTTP/1.1\" 200"}
