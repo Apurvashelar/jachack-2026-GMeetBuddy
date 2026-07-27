@@ -1,579 +1,466 @@
-/* Backchannel - broadcast talkback console.
+/* Backchannel - a wire service for the room you are sitting in.
  *
- * "Backchannel" is the crew's private comms line during a live show, so the
- * interface is built as studio equipment: a status rail that reads at a glance
- * from across a room, letterspaced mono labels like silkscreen on a rack unit,
- * and a program feed you monitor rather than read.
+ * Deliberately NOT the dark-with-a-glow look every AI dashboard wears. This is
+ * flat ink on putty, hard 2px rules, square corners, reversed black header
+ * bars: Swiss poster discipline applied to a live broadcast wire. No gradients,
+ * no drop shadows, no blur, no halos anywhere in this file.
  *
- * Provenance colour is semantic and deliberately separate from the amber brand
- * accent. UNKNOWN is a calm neutral, never a warning - an honest "not in the
- * context" is the behaviour we want to celebrate, not flag as an error.
+ * Colour does one job each. Signal red marks anything LIVE or addressed to the
+ * machine. Provenance has its own flat scale so "where did this answer come
+ * from" reads instantly. UNKNOWN is plain grey - an honest "not in the
+ * context" is a feature, not an alarm.
  */
 
 :root {
-  /* ground + structure */
-  --ink: #0e1116;
-  --panel: #151a21;
-  --panel-2: #1b212a;
-  --line: #262e3a;
-  --line-soft: #1e242e;
+  --paper: #e7e7e2;
+  --card: #f4f4f1;
+  --card-2: #dedeD8;
+  --ink: #14140f;
+  --ink-soft: #4a4a42;
+  --ink-dim: #77776d;
+  --rule: #14140f;
+  --hair: #c9c9c1;
 
-  /* type */
-  --fg: #eef2f7;
-  --fg-muted: #97a1b0;
-  --fg-dim: #67717f;
+  --signal: #d8352a;      /* the REC light */
+  --src-doc: #1a45c4;
+  --src-transcript: #0a6b41;
+  --src-prior: #6522a8;
+  --src-unknown: #6e6e66;
 
-  /* brand accent - tungsten, the warm glow of studio gear */
-  --signal: #e9a23b;
-  --signal-dim: #8a6120;
-
-  /* semantic: provenance of an answer */
-  --src-doc: #57a6f0;
-  --src-transcript: #43cf8e;
-  --src-prior: #b08bf0;
-  --src-unknown: #8a93a3;
-
-  /* semantic: state */
-  --live: #43cf8e;
-  --alert: #ec6a52;
-
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-
-  --radius: 10px;
-  --radius-sm: 6px;
+  --font-ui: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root {
-    --ink: #eef0f2;
-    --panel: #ffffff;
-    --panel-2: #f5f7f9;
-    --line: #d7dde4;
-    --line-soft: #e6eaef;
-    --fg: #10151b;
-    --fg-muted: #55606e;
-    --fg-dim: #7c8794;
-    --signal: #a96c05;
-    --signal-dim: #e0b571;
-    --src-doc: #1d6fc4;
-    --src-transcript: #10814f;
-    --src-prior: #6f43c0;
-    --src-unknown: #6b7480;
-    --live: #10814f;
-    --alert: #c0392b;
+    --paper: #101010;
+    --card: #191918;
+    --card-2: #232320;
+    --ink: #f2f2ec;
+    --ink-soft: #b4b4aa;
+    --ink-dim: #85857b;
+    --rule: #f2f2ec;
+    --hair: #34342f;
+    --signal: #ff4b3e;
+    --src-doc: #6f9bff;
+    --src-transcript: #3fcf8e;
+    --src-prior: #c08cff;
+    --src-unknown: #9a9a90;
   }
 }
 
-/* The viewer's theme toggle stamps data-theme on the root and must win over
-   the media query in both directions. */
-:root[data-theme="dark"] {
-  --ink: #0e1116; --panel: #151a21; --panel-2: #1b212a;
-  --line: #262e3a; --line-soft: #1e242e;
-  --fg: #eef2f7; --fg-muted: #97a1b0; --fg-dim: #67717f;
-  --signal: #e9a23b; --signal-dim: #8a6120;
-  --src-doc: #57a6f0; --src-transcript: #43cf8e;
-  --src-prior: #b08bf0; --src-unknown: #8a93a3;
-  --live: #43cf8e; --alert: #ec6a52;
+:root[data-theme="light"] {
+  --paper: #e7e7e2; --card: #f4f4f1; --card-2: #dedeD8;
+  --ink: #14140f; --ink-soft: #4a4a42; --ink-dim: #77776d;
+  --rule: #14140f; --hair: #c9c9c1;
+  --signal: #d8352a; --src-doc: #1a45c4; --src-transcript: #0a6b41;
+  --src-prior: #6522a8; --src-unknown: #6e6e66;
 }
 
-:root[data-theme="light"] {
-  --ink: #eef0f2; --panel: #ffffff; --panel-2: #f5f7f9;
-  --line: #d7dde4; --line-soft: #e6eaef;
-  --fg: #10151b; --fg-muted: #55606e; --fg-dim: #7c8794;
-  --signal: #a96c05; --signal-dim: #e0b571;
-  --src-doc: #1d6fc4; --src-transcript: #10814f;
-  --src-prior: #6f43c0; --src-unknown: #6b7480;
-  --live: #10814f; --alert: #c0392b;
+:root[data-theme="dark"] {
+  --paper: #101010; --card: #191918; --card-2: #232320;
+  --ink: #f2f2ec; --ink-soft: #b4b4aa; --ink-dim: #85857b;
+  --rule: #f2f2ec; --hair: #34342f;
+  --signal: #ff4b3e; --src-doc: #6f9bff; --src-transcript: #3fcf8e;
+  --src-prior: #c08cff; --src-unknown: #9a9a90;
 }
+
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--ink);
-  color: var(--fg);
+  background: var(--paper);
+  color: var(--ink);
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
 
-.bc-shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+.bc-shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ================================================================ masthead */
+
+.bc-hero {
+  position: sticky; top: 0; z-index: 30;
+  background: var(--paper);
+  border-bottom: 3px solid var(--rule);
+  padding: 0.7rem 1.5rem;
+  display: flex; align-items: stretch; gap: 1.25rem; flex-wrap: wrap;
 }
 
-/* ---------------------------------------------------------------- status rail
-   Reads from across the room: the only place with the live indicator. */
+.bc-mark { display: flex; align-items: center; gap: 0.65rem; }
 
-.bc-rail {
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--panel-2), var(--panel));
-  padding: 0.8rem 1.25rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem 1.5rem;
-  position: sticky;
-  top: 0;
-  z-index: 20;
+/* Solid block, no gradient. It is a printer's mark, not a button. */
+.bc-mark-glyph {
+  width: 32px; height: 32px; flex: none;
+  display: grid; place-items: center;
+  background: var(--signal); color: #fff;
+  font-weight: 800; font-size: 1.05rem; line-height: 1;
 }
 
-.bc-wordmark {
-  font-size: 1.05rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-
-.bc-wordmark span {
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  font-weight: 500;
-  letter-spacing: 0.16em;
+.bc-mark-text h1 {
+  margin: 0; font-size: 1.3rem; font-weight: 800;
+  letter-spacing: -0.035em; line-height: 1;
   text-transform: uppercase;
-  color: var(--fg-dim);
 }
 
-.bc-rail-spacer { flex: 1 1 auto; }
-
-/* Stat cluster - tabular figures so the numbers do not jitter as they climb. */
-.bc-stats {
-  display: flex;
-  gap: 1.25rem;
-  flex-wrap: wrap;
+.bc-mark-text p {
+  margin: 0.2rem 0 0; font-family: var(--font-mono);
+  font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-dim);
 }
 
-.bc-stat { display: flex; flex-direction: column; gap: 0.15rem; }
-
-.bc-stat dt {
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  margin: 0;
+/* The level meter. Hard-edged bars that step, like a mechanical VU. */
+.bc-wave {
+  flex: 1 1 180px; min-width: 110px;
+  display: flex; align-items: flex-end; justify-content: center;
+  gap: 2px; height: 34px;
+  border-bottom: 2px solid var(--hair);
+  padding-bottom: 2px;
 }
 
-.bc-stat dd {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg);
+.bc-wave i {
+  display: block; width: 4px; height: 12%;
+  background: var(--ink-dim);
 }
 
-.bc-onair {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  padding: 0.32rem 0.7rem;
-  border-radius: 999px;
-  border: 1px solid currentColor;
+.bc-wave.is-live i {
+  background: var(--signal);
+  animation: bc-meter 0.9s steps(4, end) infinite;
 }
 
-.bc-onair.is-live { color: var(--live); background: color-mix(in srgb, var(--live) 12%, transparent); }
-.bc-onair.is-off  { color: var(--fg-dim); }
-
-.bc-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: currentColor;
-  flex: none;
+@keyframes bc-meter {
+  0%   { height: 12%; }
+  25%  { height: 48%; }
+  50%  { height: 88%; }
+  75%  { height: 34%; }
+  100% { height: 12%; }
 }
 
-.bc-onair.is-live .bc-dot { animation: bc-pulse 2s ease-in-out infinite; }
-
-@keyframes bc-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
-  50%      { opacity: 0.55; box-shadow: 0 0 0 4px transparent; }
+.bc-status {
+  align-self: center;
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 0.35rem 0.7rem; white-space: nowrap;
+  border: 2px solid currentColor;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .bc-onair.is-live .bc-dot { animation: none; }
-  * { transition: none !important; }
+.bc-status.is-live { color: #fff; background: var(--signal); border-color: var(--signal); }
+.bc-status.is-off { color: var(--ink-dim); }
+
+.bc-status b { width: 8px; height: 8px; background: currentColor; }
+/* Hard on/off, like a tally light - not a soft pulse. */
+.bc-status.is-live b { background: #fff; animation: bc-blink 1s steps(1, end) infinite; }
+
+@keyframes bc-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+/* ============================================================== stat strip */
+
+.bc-ribbon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0; margin: 0;
+  border-bottom: 2px solid var(--rule);
+  max-width: 1560px; width: 100%; margin: 0 auto;
+  padding: 0 1.5rem;
 }
 
-/* ------------------------------------------------------------------ layout */
+.bc-tile {
+  padding: 0.7rem 0.9rem 0.8rem;
+  border-right: 1px solid var(--hair);
+}
+
+.bc-tile:last-child { border-right: 0; }
+
+.bc-tile dt {
+  margin: 0; font-family: var(--font-mono); font-size: 0.55rem;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim);
+}
+
+.bc-tile dd {
+  margin: 0.3rem 0 0; font-size: 1.6rem; font-weight: 800;
+  letter-spacing: -0.04em; font-variant-numeric: tabular-nums; line-height: 1;
+}
+
+.bc-tile dd small {
+  font-size: 0.65rem; font-weight: 500; letter-spacing: 0;
+  color: var(--ink-dim);
+}
+
+.bc-tile.is-accent dd { color: var(--signal); }
+.bc-tile.is-mint dd { color: var(--src-transcript); }
+
+/* =================================================================== layout */
 
 .bc-body {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 1rem;
-  padding: 1rem 1.25rem 1.5rem;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 1.1rem;
+  padding: 1.1rem 1.5rem 2rem;
   align-items: start;
-  max-width: 1500px;
-  width: 100%;
-  margin: 0 auto;
-  box-sizing: border-box;
+  max-width: 1560px; width: 100%; margin: 0 auto;
 }
 
-@media (max-width: 980px) {
-  .bc-body { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1020px) { .bc-body { grid-template-columns: minmax(0, 1fr); } }
+
+.bc-col { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+
+.bc-panel {
+  background: var(--card);
+  border: 2px solid var(--rule);
+  animation: bc-in 0.28s ease-out both;
 }
 
-.bc-col { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
-
-.bc-module {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
+@keyframes bc-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
 }
 
-.bc-module-head {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.7rem 0.9rem;
-  border-bottom: 1px solid var(--line-soft);
-  background: var(--panel-2);
+/* Reversed bar - the wire-service device that gives the page its spine. */
+.bc-panel-head {
+  display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+  padding: 0.45rem 0.75rem;
+  background: var(--rule);
+  color: var(--paper);
 }
 
-.bc-module-head h2 {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
+.bc-panel-head h2 {
+  margin: 0; font-family: var(--font-mono); font-size: 0.66rem;
+  font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
 }
 
-.bc-module-head .bc-rail-spacer { flex: 1; }
-.bc-module-body { padding: 0.9rem; }
+.bc-grow { flex: 1 1 auto; }
+.bc-panel-body { padding: 0.9rem; }
+.bc-meta { font-family: var(--font-mono); font-size: 0.63rem; opacity: 0.75; }
 .bc-scroll { overflow-y: auto; }
-.bc-feed-scroll { max-height: 64vh; }
-.bc-verdict-scroll { max-height: 46vh; }
+.bc-feed-h { max-height: 62vh; }
+.bc-verdict-h { max-height: 52vh; }
 
-/* -------------------------------------------------------------- program feed
-   A monitored stream: timecode in the gutter, cues called out. */
+/* =============================================================== transcript */
 
 .bc-line {
-  display: grid;
-  grid-template-columns: 3.6rem minmax(0, 1fr);
-  gap: 0.75rem;
-  padding: 0.4rem 0.5rem;
-  border-radius: var(--radius-sm);
-  border-left: 2px solid transparent;
+  display: grid; grid-template-columns: 3.2rem minmax(0, 1fr); gap: 0.7rem;
+  padding: 0.4rem 0.5rem 0.4rem 0.55rem;
+  border-left: 3px solid transparent;
+  animation: bc-in 0.24s ease-out both;
 }
 
-.bc-line + .bc-line { margin-top: 0.1rem; }
+.bc-line + .bc-line { border-top: 1px solid var(--hair); }
 
-.bc-time {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg-dim);
-  padding-top: 0.15rem;
+.bc-tc {
+  font-family: var(--font-mono); font-size: 0.64rem;
+  font-variant-numeric: tabular-nums; color: var(--ink-dim); padding-top: 0.2rem;
 }
 
-.bc-speaker {
-  font-weight: 650;
-  font-size: 0.78rem;
-  color: var(--fg-muted);
-  margin-right: 0.4rem;
+.bc-who {
+  font-weight: 700; font-size: 0.76rem; margin-right: 0.45rem;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft);
 }
 
-.bc-said { font-size: 0.88rem; line-height: 1.55; color: var(--fg); }
+.bc-said { font-size: 0.9rem; line-height: 1.6; }
 
-/* A wake phrase is a CUE - the moment the room addressed the system. */
+/* The room addressing the machine. Solid red bar, hard flash, no glow. */
 .bc-line.is-cue {
-  background: color-mix(in srgb, var(--signal) 10%, transparent);
+  background: var(--card-2);
   border-left-color: var(--signal);
+  animation: bc-in 0.24s ease-out both, bc-cueflash 0.6s steps(1, end) 2;
 }
 
-.bc-line.is-cue .bc-speaker { color: var(--signal); }
-
-.bc-cue-tag {
-  font-family: var(--font-mono);
-  font-size: 0.55rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--signal);
-  margin-right: 0.45rem;
+@keyframes bc-cueflash {
+  0%, 49% { background: var(--card-2); }
+  50%, 100% { background: color-mix(in srgb, var(--signal) 18%, var(--card)); }
 }
 
-/* ----------------------------------------------------------------- verdicts
-   The provenance stripe is the point: colour encodes where evidence came from. */
+.bc-line.is-cue .bc-who { color: var(--signal); }
+
+.bc-cue {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 0.55rem; font-weight: 800;
+  letter-spacing: 0.16em; margin-right: 0.45rem;
+  padding: 0.12rem 0.32rem; background: var(--signal); color: #fff;
+}
+
+/* ================================================================= verdicts */
 
 .bc-verdict {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--src);
-  border-radius: var(--radius-sm);
-  background: var(--panel-2);
-  padding: 0.75rem 0.85rem;
+  border: 2px solid var(--rule);
+  border-left: 6px solid var(--src);
+  background: var(--card);
+  padding: 0.8rem 0.9rem;
+  animation: bc-in 0.28s ease-out both;
 }
 
-.bc-verdict + .bc-verdict { margin-top: 0.6rem; }
+.bc-verdict + .bc-verdict { margin-top: 0.7rem; }
 
-.bc-verdict-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.45rem;
-}
+.bc-verdict-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
 
 .bc-chip {
-  font-family: var(--font-mono);
-  font-size: 0.56rem;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
+  font-family: var(--font-mono); font-size: 0.55rem; font-weight: 800;
+  letter-spacing: 0.16em; text-transform: uppercase;
   padding: 0.22rem 0.5rem;
-  border-radius: 4px;
-  border: 1px solid var(--src);
-  color: var(--src);
-  background: color-mix(in srgb, var(--src) 12%, transparent);
+  border: 2px solid var(--src); color: var(--src); background: transparent;
   white-space: nowrap;
 }
 
-/* UNKNOWN is not a failure - dashed, uncoloured, calm. */
-.bc-chip.is-unknown { border-style: dashed; background: transparent; }
+.bc-chip.is-unknown { border-style: dashed; }
 
-.bc-question {
-  font-size: 0.78rem;
-  color: var(--fg-muted);
-  margin: 0 0 0.4rem;
-  line-height: 1.45;
+.bc-q {
+  font-size: 0.76rem; color: var(--ink-dim); margin: 0 0 0.45rem;
+  line-height: 1.5; text-transform: uppercase; letter-spacing: 0.03em;
 }
 
-.bc-answer { font-size: 0.95rem; line-height: 1.55; margin: 0; color: var(--fg); }
+.bc-a { font-size: 1.02rem; line-height: 1.55; margin: 0; }
 
 .bc-quote {
-  margin: 0.6rem 0 0;
-  padding: 0.4rem 0 0.4rem 0.7rem;
-  border-left: 2px solid var(--line);
-  font-size: 0.76rem;
-  line-height: 1.5;
-  color: var(--fg-dim);
-  font-style: italic;
+  margin: 0.7rem 0 0; padding: 0.4rem 0 0.4rem 0.7rem;
+  border-left: 3px solid var(--hair);
+  font-size: 0.78rem; line-height: 1.55; color: var(--ink-dim);
 }
 
 .bc-link {
-  display: inline-block;
-  margin-top: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--src-doc);
-  word-break: break-all;
+  display: inline-block; margin-top: 0.5rem;
+  font-family: var(--font-mono); font-size: 0.72rem;
+  color: var(--src-doc); word-break: break-all;
 }
 
-/* ----------------------------------------------------------------- controls */
+/* ======================================================= four intake tiles
+   Two destinations x two payloads. The 2x2 grid states that structure
+   without a paragraph explaining it. */
 
-.bc-controls { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.bc-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+@media (max-width: 560px) { .bc-inputs { grid-template-columns: 1fr; } }
+
+.bc-drop {
+  border: 2px solid var(--hair);
+  border-top: 6px solid var(--hair);
+  padding: 0.7rem;
+  background: var(--card);
+  display: flex; flex-direction: column; gap: 0.45rem;
+  transition: border-color 120ms ease-out, background 120ms ease-out;
+}
+
+.bc-drop.is-rag { border-top-color: var(--src-doc); }
+.bc-drop.is-pin { border-top-color: var(--signal); }
+
+.bc-drop.is-over {
+  border-color: var(--ink);
+  background: var(--card-2);
+}
+
+.bc-drop-head { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
+
+.bc-drop-kind {
+  font-family: var(--font-mono); font-size: 0.57rem; font-weight: 800;
+  letter-spacing: 0.16em; text-transform: uppercase;
+}
+
+.bc-drop.is-rag .bc-drop-kind { color: var(--src-doc); }
+.bc-drop.is-pin .bc-drop-kind { color: var(--signal); }
+.bc-drop-hint { margin: 0; font-size: 0.68rem; color: var(--ink-dim); line-height: 1.45; }
+
+.bc-row { display: flex; gap: 0.35rem; }
 
 .bc-input {
-  flex: 1 1 12rem;
-  min-width: 0;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.82rem;
-  font-family: var(--font-mono);
-  color: var(--fg);
-  background: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  flex: 1 1 auto; min-width: 0;
+  padding: 0.45rem 0.55rem; font-size: 0.78rem; font-family: var(--font-mono);
+  color: var(--ink); background: var(--paper);
+  border: 2px solid var(--hair);
 }
 
-.bc-input::placeholder { color: var(--fg-dim); }
-.bc-input:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+.bc-input::placeholder { color: var(--ink-dim); }
+.bc-input:focus-visible { outline: none; border-color: var(--ink); }
+
+.bc-textarea { resize: vertical; min-height: 2.9rem; font-family: var(--font-ui); line-height: 1.5; }
+
+.bc-file {
+  display: block; text-align: center; cursor: pointer;
+  padding: 0.6rem; border: 2px dashed var(--hair); background: var(--paper);
+  font-family: var(--font-mono); font-size: 0.65rem;
+  letter-spacing: 0.06em; color: var(--ink-dim);
+  transition: border-color 120ms ease-out, color 120ms ease-out;
+}
+
+.bc-file:hover { border-color: var(--ink); color: var(--ink); }
+.bc-file input { display: none; }
+
+/* ================================================================= controls */
 
 .bc-btn {
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  padding: 0.45rem 0.7rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--fg-muted);
-  cursor: pointer;
-  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
-  white-space: nowrap;
+  font-family: var(--font-mono); font-size: 0.63rem; font-weight: 800;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 0.42rem 0.7rem;
+  border: 2px solid currentColor; background: transparent; color: var(--ink-soft);
+  cursor: pointer; white-space: nowrap;
+  transition: color 120ms ease-out, background 120ms ease-out;
 }
 
-.bc-btn:hover { border-color: var(--signal); color: var(--signal); }
-.bc-btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+.bc-panel-head .bc-btn { color: var(--paper); }
+.bc-panel-head .bc-btn:hover { background: var(--paper); color: var(--rule); }
 
-.bc-btn.is-primary {
-  border-color: var(--signal);
-  color: var(--signal);
-  background: color-mix(in srgb, var(--signal) 12%, transparent);
-}
+.bc-btn:hover { color: var(--ink); }
+.bc-btn:focus-visible { outline: 3px solid var(--signal); outline-offset: 1px; }
 
-.bc-btn.is-danger { border-color: var(--alert); color: var(--alert); }
-.bc-btn.is-on { border-color: var(--live); color: var(--live); }
+.bc-btn.is-primary { background: var(--signal); border-color: var(--signal); color: #fff; }
+.bc-btn.is-primary:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.bc-btn.is-danger { color: var(--signal); }
+.bc-panel-head .bc-btn.is-danger { color: var(--signal); }
+.bc-btn.is-on { color: var(--src-transcript); }
+.bc-panel-head .bc-btn.is-on { color: #7ff0b8; }
 
 .bc-note {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: var(--signal);
+  margin: 0.6rem 0 0; font-family: var(--font-mono);
+  font-size: 0.7rem; line-height: 1.5; color: var(--signal);
+  animation: bc-in 0.2s ease-out both;
 }
 
 .bc-log {
-  margin: 0.5rem 0 0;
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  line-height: 1.5;
-  color: var(--fg-dim);
-  white-space: pre-wrap;
-  word-break: break-word;
+  margin: 0.5rem 0 0; font-family: var(--font-mono); font-size: 0.64rem;
+  line-height: 1.5; color: var(--ink-dim); white-space: pre-wrap; word-break: break-word;
 }
 
-.bc-sources {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.7rem;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--line-soft);
-  flex-wrap: wrap;
+/* ===================================================================== tags */
+
+.bc-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.6rem; }
+
+.bc-tag {
+  font-family: var(--font-mono); font-size: 0.62rem;
+  padding: 0.2rem 0.45rem;
+  border: 2px solid var(--hair); color: var(--ink-soft); background: var(--paper);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.bc-source-list {
-  flex: 1 1 10rem;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--fg-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.bc-tag.is-rag { border-color: var(--src-doc); color: var(--src-doc); }
+.bc-tag.is-pin { border-color: var(--signal); color: var(--signal); }
+.bc-tag.is-empty { border-style: dashed; color: var(--ink-dim); }
+
+/* ======================================================== summary + memory */
+
+.bc-summary { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 0.9rem; line-height: 1.7; }
+
+.bc-mem + .bc-mem { margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--hair); }
+
+.bc-mem-when {
+  font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--src-prior); margin-bottom: 0.3rem;
 }
 
-/* -------------------------------------------------------- summary + memory */
+.bc-mem-text { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 0.84rem; line-height: 1.6; color: var(--ink-soft); }
 
-.bc-summary {
-  margin: 0;
-  white-space: pre-wrap;
-  font-family: inherit;
-  font-size: 0.86rem;
-  line-height: 1.65;
-  color: var(--fg);
-}
-
-.bc-memory-block + .bc-memory-block {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--line-soft);
-}
-
-.bc-memory-when {
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.1em;
-  color: var(--src-prior);
-  margin-bottom: 0.3rem;
-}
-
-.bc-memory-text {
-  margin: 0;
-  white-space: pre-wrap;
-  font-family: inherit;
-  font-size: 0.82rem;
-  line-height: 1.6;
-  color: var(--fg-muted);
-}
-
-/* Empty states teach the operator what to do next. */
-.bc-empty {
-  margin: 0;
-  font-size: 0.83rem;
-  line-height: 1.6;
-  color: var(--fg-dim);
-}
+.bc-empty { margin: 0; font-size: 0.84rem; line-height: 1.65; color: var(--ink-dim); }
 
 .bc-empty code {
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--signal);
-  background: color-mix(in srgb, var(--signal) 10%, transparent);
-  padding: 0.05rem 0.3rem;
-  border-radius: 3px;
+  font-family: var(--font-mono); font-size: 0.78rem;
+  color: var(--ink); background: var(--card-2); padding: 0.08rem 0.3rem;
 }
 
 .bc-foot {
-  padding: 0 1.25rem 1.5rem;
-  max-width: 1500px;
-  width: 100%;
-  margin: 0 auto;
-  box-sizing: border-box;
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-  letter-spacing: 0.06em;
-  color: var(--fg-dim);
+  padding: 0 1.5rem 2rem; max-width: 1560px; width: 100%; margin: 0 auto;
+  font-family: var(--font-mono); font-size: 0.62rem;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim);
 }
 
-/* ------------------------------------------------------- knowledge sections
-   Two ways in, and the interface should make the difference obvious: material
-   that is SEARCHED versus material that is ALWAYS PRESENT. */
-
-.bc-source-group + .bc-source-group {
-  margin-top: 0.9rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--line-soft);
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .bc-wave i { height: 45%; }
 }
-
-.bc-source-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.55rem;
-  margin-bottom: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.bc-source-kind {
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--src-doc);
-}
-
-.bc-source-kind.is-pinned { color: var(--signal); }
-
-.bc-source-hint {
-  font-size: 0.72rem;
-  color: var(--fg-dim);
-}
-
-.bc-textarea {
-  resize: vertical;
-  min-height: 3.2rem;
-  font-family: var(--font-ui);
-  line-height: 1.5;
-}
-
-.bc-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.5rem;
-}
-
-.bc-tag {
-  font-family: var(--font-mono);
-  font-size: 0.63rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 4px;
-  border: 1px solid var(--line);
-  color: var(--fg-muted);
-  background: var(--ink);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bc-tag.is-pinned { border-color: var(--signal-dim); color: var(--signal); }
-.bc-tag.is-empty { border-style: dashed; color: var(--fg-dim); }

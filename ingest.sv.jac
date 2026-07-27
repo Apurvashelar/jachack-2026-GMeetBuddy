@@ -17,7 +17,7 @@ import from answer { handle_wake, advance_summary }
 import from workspace { list_workspace_docs, workspace_dir, chunk_text }
 import from slackbridge { slack_poll }
 import from adapters { fetch_repo_docs }
-import from sources { find_urls, ingest_url, ingest_text }
+import from sources { find_urls, ingest_url, ingest_text, ingest_blob }
 import from botctl { bot_running, bot_log_tail }
 
 
@@ -318,11 +318,15 @@ walker:pub SyncWorkspace {
 
 
 walker:pub AddSource {
-    """Add knowledge from the dashboard.
+    """Add knowledge from the dashboard - four shapes, two destinations.
 
-    Two shapes, deliberately distinct:
-      mode="rag"    - a URL, fetched and chunked, retrieved when relevant
-      mode="direct" - text (or a URL) pinned into every single answer
+    mode="rag"    -> chunked, retrieved by relevance (papers, wikis, specs)
+    mode="direct" -> sent verbatim with every answer (agenda, glossary)
+
+    and the payload is any of: a URL to fetch, literal text, or a file
+    delivered as base64. Files arrive base64-in-JSON rather than as multipart
+    so the whole client stays on the same typed walker-spawn path as everything
+    else - no separate upload endpoint, no form encoding.
     """
 
     has series: str,
@@ -330,6 +334,8 @@ walker:pub AddSource {
         url: str = "",
         text: str = "",
         title: str = "briefing",
+        filename: str = "",
+        content_b64: str = "",
         reports: list[dict[any]] = [];
 
     can at_root with Root entry {
@@ -338,6 +344,24 @@ walker:pub AddSource {
 
     can at_series with MeetingSeries entry {
         added: list[str] = [];
+
+        if self.content_b64 != "" and self.filename != "" {
+            import base64;
+            try {
+                blob = base64.b64decode(self.content_b64);
+                name = ingest_blob(self.series, self.filename, blob, self.mode);
+                if name == "" {
+                    report {"ok": False,
+                            "error": f"{self.filename}: unsupported or unreadable. PDF, .md and .txt only."};
+                    disengage;
+                }
+                added.append(name);
+            } except Exception as e {
+                report {"ok": False, "error": f"Could not read {self.filename}: {str(e)}"};
+                disengage;
+            }
+        }
+
         for u in find_urls(self.url + " " + self.text) {
             name = ingest_url(self.series, u, self.mode);
             if name != "" {

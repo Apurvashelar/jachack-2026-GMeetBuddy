@@ -14,7 +14,7 @@ Two React traps this file is written around:
 
 import from react { useEffect }
 
-import from .components.Cards { AnswerCard, ActionCard, FeedLine, SourceChip }
+import from .components.Cards { AnswerCard, ActionCard, FeedLine, SourceChip, DropTile }
 
 sv import from ingest { Tick, SyncWorkspace, ImportOrgDocs, AddSource }
 sv import from answer { EndSession, Summarize }
@@ -30,6 +30,12 @@ glob spokenAnswers: list[str] = [];
 # jac2js emits a literal backslash-n for "\n" in client code; chr(10) is the
 # portable spelling (see `jac guide jac-cl-js-interop`).
 glob _NL: str = chr(10);
+
+# 28 bars: enough to read as signal, few enough to stay cheap to animate.
+glob WAVE_BARS: list[int] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+    14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27
+];
 
 
 """Speak an answer through the browser's own speech synthesis.
@@ -52,6 +58,7 @@ def:pub app -> JsxElement {
         memory: list[any] = [],
         summary: str = "",
         docTitles: list[any] = [],
+        pinnedTitles: list[any] = [],
         docChunks: int = 0,
         startedAt: str = "",
         source: str = "",
@@ -64,9 +71,10 @@ def:pub app -> JsxElement {
         botLog: str = "",
         botMsg: str = "",
         syncMsg: str = "",
-        pinnedTitles: list[any] = [],
         ragUrl: str = "",
-        pinText: str = "";
+        pinUrl: str = "",
+        pinText: str = "",
+        overTile: str = "";
 
     async def poll -> None {
         try {
@@ -105,11 +113,109 @@ def:pub app -> JsxElement {
         }
     }
 
-    async def sendBot(e: MouseEvent) -> None {
-        if meetUrl.strip() == "" {
-            botMsg = "Paste a Google Meet link first.";
+    """Send one source to the brain and report what happened."""
+    async def submitSource(mode: str, url: str, text: str) -> None {
+        result = root spawn AddSource(series=SERIES_NAME, mode=mode, url=url, text=text, title="briefing");
+        if result.reports and len(result.reports) > 0 {
+            r: any = result.reports[0];
+            if bool(r["ok"]) {
+                syncMsg = ("Indexed " if mode == "rag" else "Pinned ") + str(len(r["added"] as list[any])) + " source(s)";
+            } else {
+                syncMsg = str(r["error"]);
+            }
+        }
+    }
+
+    """Read a browser File and hand it over as base64.
+
+    FileReader is callback-based, so this wraps it in a Promise the async
+    handler below can await - otherwise the upload fires before the bytes
+    have been read."""
+    def readFile(file: any) -> any {
+        return new(Promise, lambda (resolve: any, reject: any) {
+            reader: any = new(FileReader);  # jac:ignore[E1053]
+            reader.onload = lambda (e: any) {
+                # dataURL looks like "data:<mime>;base64,<payload>"
+                raw = String(reader.result);
+                resolve.call(None, raw.split(",")[1]);
+            };
+            reader.onerror = lambda (e: any) { resolve.call(None, ""); };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async def uploadFiles(mode: str, files: any) -> None {
+        count = int(files.length);
+        if count == 0 {
             return;
         }
+        syncMsg = "Reading " + str(count) + " file(s)...";
+        ok = 0;
+        skipped = 0;
+        for i in range(count) {
+            f: any = files[i];
+            name = String(f.name);
+            lower = name.lower();
+            if not (lower.endswith(".pdf") or lower.endswith(".md") or lower.endswith(".txt") or lower.endswith(".markdown")) {
+                skipped += 1;
+                continue;
+            }
+            b64 = await readFile(f);
+            if not b64 {
+                skipped += 1;
+                continue;
+            }
+            result = root spawn AddSource(
+                series=SERIES_NAME, mode=mode, filename=name, content_b64=b64
+            );
+            if result.reports and len(result.reports) > 0 {
+                r: any = result.reports[0];
+                if bool(r["ok"]) { ok += 1; } else { skipped += 1; }
+            }
+        }
+        tail = (", " + str(skipped) + " skipped") if skipped > 0 else "";
+        syncMsg = ("Indexed " if mode == "rag" else "Pinned ") + str(ok) + " file(s)" + tail;
+    }
+
+    async def addRagUrl(e: MouseEvent) -> None {
+        if ragUrl.strip() == "" { syncMsg = "Paste a URL to index."; return; }
+        syncMsg = "Fetching and indexing...";
+        await submitSource("rag", ragUrl, "");
+        ragUrl = "";
+    }
+
+    async def addPinUrl(e: MouseEvent) -> None {
+        if pinUrl.strip() == "" { syncMsg = "Paste a URL to pin."; return; }
+        syncMsg = "Fetching and pinning...";
+        await submitSource("direct", pinUrl, "");
+        pinUrl = "";
+    }
+
+    async def addPinText(e: MouseEvent) -> None {
+        if pinText.strip() == "" { syncMsg = "Type the context you want in every answer."; return; }
+        syncMsg = "Pinning...";
+        await submitSource("direct", "", pinText);
+        pinText = "";
+    }
+
+    async def onRagFiles(e: ChangeEvent) -> None { await uploadFiles("rag", e.target.files); }
+    async def onPinFiles(e: ChangeEvent) -> None { await uploadFiles("direct", e.target.files); }
+
+    def dragOver(tile: str, e: any) -> None {
+        e.preventDefault();
+        overTile = tile;
+    }
+
+    def dragLeave(e: any) -> None { overTile = ""; }
+
+    async def dropOn(mode: str, e: any) -> None {
+        e.preventDefault();
+        overTile = "";
+        await uploadFiles(mode, e.dataTransfer.files);
+    }
+
+    async def sendBot(e: MouseEvent) -> None {
+        if meetUrl.strip() == "" { botMsg = "Paste a Google Meet link first."; return; }
         botMsg = "Launching...";
         result = root spawn StartBot(series=SERIES_NAME, meet_url=meetUrl);
         if result.reports and len(result.reports) > 0 {
@@ -127,15 +233,11 @@ def:pub app -> JsxElement {
     }
 
     async def syncDocs(e: MouseEvent) -> None {
-        syncMsg = "Syncing...";
+        syncMsg = "Rescanning the workspace folder...";
         result = root spawn SyncWorkspace(series=SERIES_NAME);
         if result.reports and len(result.reports) > 0 {
             r: any = result.reports[0];
-            if bool(r["ok"]) {
-                syncMsg = "Loaded " + str(len(r["loaded"] as list[any])) + " source(s)";
-            } else {
-                syncMsg = str(r["error"]);
-            }
+            syncMsg = ("Loaded " + str(len(r["loaded"] as list[any])) + " source(s)") if bool(r["ok"]) else str(r["error"]);
         }
     }
 
@@ -144,61 +246,13 @@ def:pub app -> JsxElement {
         result = root spawn ImportOrgDocs(series=SERIES_NAME);
         if result.reports and len(result.reports) > 0 {
             r: any = result.reports[0];
-            if bool(r["ok"]) {
-                syncMsg = "Imported " + str(len(r["loaded"] as list[any])) + " repo doc(s)";
-            } else {
-                syncMsg = str(r["error"]);
-            }
+            syncMsg = ("Imported " + str(len(r["loaded"] as list[any])) + " repo doc(s)") if bool(r["ok"]) else str(r["error"]);
         }
     }
 
-    async def addRagSource(e: MouseEvent) -> None {
-        if ragUrl.strip() == "" {
-            syncMsg = "Paste a URL to add searchable knowledge.";
-            return;
-        }
-        syncMsg = "Fetching and indexing...";
-        result = root spawn AddSource(series=SERIES_NAME, mode="rag", url=ragUrl);
-        if result.reports and len(result.reports) > 0 {
-            r: any = result.reports[0];
-            if bool(r["ok"]) {
-                syncMsg = "Indexed " + str(len(r["added"] as list[any])) + " source(s)";
-                ragUrl = "";
-            } else {
-                syncMsg = str(r["error"]);
-            }
-        }
-    }
-
-    async def addPinned(e: MouseEvent) -> None {
-        if pinText.strip() == "" {
-            syncMsg = "Type the context you want in every answer.";
-            return;
-        }
-        syncMsg = "Pinning...";
-        result = root spawn AddSource(series=SERIES_NAME, mode="direct", text=pinText, title="briefing");
-        if result.reports and len(result.reports) > 0 {
-            r: any = result.reports[0];
-            if bool(r["ok"]) {
-                syncMsg = "Pinned - now sent with every answer";
-                pinText = "";
-            } else {
-                syncMsg = str(r["error"]);
-            }
-        }
-    }
-
-    async def forceSummary(e: MouseEvent) -> None {
-        root spawn Summarize(series=SERIES_NAME, force=True);
-    }
-
-    async def endSession(e: MouseEvent) -> None {
-        root spawn EndSession(series=SERIES_NAME);
-    }
-
-    def toggleVoice(e: MouseEvent) -> None {
-        voiceOn = not voiceOn;
-    }
+    async def forceSummary(e: MouseEvent) -> None { root spawn Summarize(series=SERIES_NAME, force=True); }
+    async def endSession(e: MouseEvent) -> None { root spawn EndSession(series=SERIES_NAME); }
+    def toggleVoice(e: MouseEvent) -> None { voiceOn = not voiceOn; }
 
     useEffect(lambda {
         poll();
@@ -206,35 +260,49 @@ def:pub app -> JsxElement {
         return lambda { clearInterval(interval); };
     }, []);
 
+    hearing = connected and live;
+
     return <div className="bc-shell">
-        <header className="bc-rail">
-            <h1 className="bc-wordmark">Backchannel<span>talkback</span></h1>
-            <span className={"bc-onair is-live" if live and connected else "bc-onair is-off"}>
-                <span className="bc-dot"></span>
-                {"on air" if live and connected else ("standby" if connected else "no signal")}
+        <header className="bc-hero">
+            <div className="bc-mark">
+                <div className="bc-mark-glyph">B</div>
+                <div className="bc-mark-text">
+                    <h1>Backchannel</h1>
+                    <p>{SERIES_NAME}</p>
+                </div>
+            </div>
+
+            <div className={"bc-wave is-live" if hearing else "bc-wave"}>
+                {for i in WAVE_BARS {
+                    <i key={str(i)} style={{"animationDelay": str(i * 0.055) + "s"}}></i>
+                }}
+            </div>
+
+            <span className={"bc-status is-live" if hearing else "bc-status is-off"}>
+                <b></b>{"listening" if hearing else ("standby" if connected else "no signal")}
             </span>
-            <span className="bc-rail-spacer"></span>
-            <dl className="bc-stats">
-                <div className="bc-stat"><dt>meeting</dt><dd>{SERIES_NAME}</dd></div>
-                <div className="bc-stat"><dt>captions</dt><dd>{str(total)}</dd></div>
-                <div className="bc-stat"><dt>searchable</dt><dd>{str(len(docTitles)) + " · " + str(docChunks) + " chunks"}</dd></div>
-                <div className="bc-stat"><dt>pinned</dt><dd>{str(len(pinnedTitles))}</dd></div>
-                <div className="bc-stat"><dt>memory</dt><dd>{str(len(memory)) + " prior"}</dd></div>
-                <div className="bc-stat"><dt>ears</dt><dd>{source if source != "" else "idle"}</dd></div>
-            </dl>
         </header>
 
+        <dl className="bc-ribbon">
+            <div className="bc-tile"><dt>captions</dt><dd>{str(total)}</dd></div>
+            <div className="bc-tile is-mint"><dt>answered</dt><dd>{str(len(answers))}</dd></div>
+            <div className="bc-tile"><dt>searchable</dt><dd>{str(len(docTitles))} <small>{"· " + str(docChunks) + " chunks"}</small></dd></div>
+            <div className="bc-tile is-accent"><dt>pinned</dt><dd>{str(len(pinnedTitles))}</dd></div>
+            <div className="bc-tile"><dt>memory</dt><dd>{str(len(memory))} <small>prior</small></dd></div>
+            <div className="bc-tile"><dt>ears</dt><dd style={{"fontSize": "0.95rem"}}>{source if source != "" else "idle"}</dd></div>
+        </dl>
+
         <main className="bc-body">
-            <section className="bc-module">
-                <div className="bc-module-head">
-                    <h2>program feed</h2>
-                    <span className="bc-rail-spacer"></span>
-                    <span className="bc-time">{startedAt if startedAt != "" else "no session"}</span>
+            <section className="bc-panel">
+                <div className="bc-panel-head">
+                    <h2>live transcript</h2>
+                    <span className="bc-grow"></span>
+                    <span className="bc-meta">{startedAt if startedAt != "" else "no session"}</span>
                 </div>
-                <div className="bc-module-body bc-scroll bc-feed-scroll">
+                <div className="bc-panel-body bc-scroll bc-feed-h">
                     {if len(utterances) == 0 {
                         <p className="bc-empty">
-                            Nothing on the wire yet. Send the bot into a meeting, or run <code>jac run replay.jac</code> to feed it a scripted one.
+                            Nothing on the wire yet. Send the bot into a meeting above, or run <code>jac run replay.jac</code> to feed it a scripted one.
                         </p>
                     }}
                     {for u in utterances {
@@ -250,16 +318,16 @@ def:pub app -> JsxElement {
             </section>
 
             <div className="bc-col">
-                <section className="bc-module">
-                    <div className="bc-module-head">
-                        <h2>meeting control</h2>
-                        <span className="bc-rail-spacer"></span>
-                        <span className={"bc-onair is-live" if botRunning else "bc-onair is-off"}>
-                            <span className="bc-dot"></span>{"bot in call" if botRunning else "bot idle"}
+                <section className="bc-panel">
+                    <div className="bc-panel-head">
+                        <h2>meeting</h2>
+                        <span className="bc-grow"></span>
+                        <span className={"bc-status is-live" if botRunning else "bc-status is-off"}>
+                            <b></b>{"bot in call" if botRunning else "bot idle"}
                         </span>
                     </div>
-                    <div className="bc-module-body">
-                        <div className="bc-controls">
+                    <div className="bc-panel-body">
+                        <div className="bc-row">
                             <input
                                 className="bc-input"
                                 type="text"
@@ -271,55 +339,119 @@ def:pub app -> JsxElement {
                                 <button className="bc-btn is-primary" onClick={sendBot}>send bot</button>
                             }}
                             {if botRunning {
-                                <button className="bc-btn is-danger" onClick={stopTheBot}>stop bot</button>
+                                <button className="bc-btn is-danger" onClick={stopTheBot}>stop</button>
                             }}
                         </div>
-                        {if botMsg != "" {
-                            <p className="bc-note">{botMsg}</p>
-                        }}
-                        {if botRunning and botLog != "" {
-                            <pre className="bc-log">{botLog}</pre>
-                        }}
-                        <div className="bc-sources">
-                            <span className="bc-source-list">
-                                {(", ".join([str(t) for t in docTitles])) if len(docTitles) > 0 else "no sources loaded"}
-                            </span>
-                            <button className="bc-btn" onClick={syncDocs}>sync folder</button>
-                            <button className="bc-btn" onClick={importOrgDocs}>import repo</button>
-                        </div>
-                        {if syncMsg != "" {
-                            <p className="bc-note">{syncMsg}</p>
-                        }}
+                        {if botMsg != "" { <p className="bc-note">{botMsg}</p> }}
+                        {if botRunning and botLog != "" { <pre className="bc-log">{botLog}</pre> }}
                     </div>
                 </section>
 
-                <section className="bc-module">
-                    <div className="bc-module-head">
+                <section className="bc-panel">
+                    <div className="bc-panel-head">
+                        <h2>knowledge</h2>
+                        <span className="bc-grow"></span>
+                        <button className="bc-btn" onClick={syncDocs}>rescan</button>
+                        <button className="bc-btn" onClick={importOrgDocs}>import repo</button>
+                    </div>
+                    <div className="bc-panel-body">
+                        <div className="bc-inputs">
+                            <DropTile
+                                kind="rag" accepts="link"
+                                title="searchable · link"
+                                hint="Fetched, chunked, retrieved when relevant."
+                                value={ragUrl} isOver={overTile == "ragUrl"}
+                                onValue={lambda (e: ChangeEvent) { ragUrl = e.target.value; }}
+                                onSubmit={addRagUrl} onFiles={onRagFiles}
+                                onDragOver={lambda (e: any) { dragOver("ragUrl", e); }}
+                                onDragLeave={dragLeave}
+                                onDrop={lambda (e: any) { dropOn("rag", e); }}
+                            />
+                            <DropTile
+                                kind="rag" accepts="file"
+                                title="searchable · files"
+                                hint="PDF, .md, .txt. Drop a folder and it takes everything readable."
+                                value="" isOver={overTile == "ragFile"}
+                                onValue={lambda (e: ChangeEvent) { }}
+                                onSubmit={addRagUrl} onFiles={onRagFiles}
+                                onDragOver={lambda (e: any) { dragOver("ragFile", e); }}
+                                onDragLeave={dragLeave}
+                                onDrop={lambda (e: any) { dropOn("rag", e); }}
+                            />
+                            <DropTile
+                                kind="pin" accepts="link"
+                                title="always on · link"
+                                hint="Fetched once, then sent with every answer."
+                                value={pinUrl} isOver={overTile == "pinUrl"}
+                                onValue={lambda (e: ChangeEvent) { pinUrl = e.target.value; }}
+                                onSubmit={addPinUrl} onFiles={onPinFiles}
+                                onDragOver={lambda (e: any) { dragOver("pinUrl", e); }}
+                                onDragLeave={dragLeave}
+                                onDrop={lambda (e: any) { dropOn("direct", e); }}
+                            />
+                            <DropTile
+                                kind="pin" accepts="file"
+                                title="always on · files"
+                                hint="Short briefings only — these ride along on every question."
+                                value="" isOver={overTile == "pinFile"}
+                                onValue={lambda (e: ChangeEvent) { }}
+                                onSubmit={addPinText} onFiles={onPinFiles}
+                                onDragOver={lambda (e: any) { dragOver("pinFile", e); }}
+                                onDragLeave={dragLeave}
+                                onDrop={lambda (e: any) { dropOn("direct", e); }}
+                            />
+                        </div>
+
+                        <div className="bc-row" style={{"marginTop": "0.65rem"}}>
+                            <textarea
+                                className="bc-input bc-textarea"
+                                value={pinText}
+                                onChange={lambda (e: ChangeEvent) { pinText = e.target.value; }}
+                                placeholder="Or type context to pin: we are the payments team, ACH means…"
+                            ></textarea>
+                            <button className="bc-btn is-primary" onClick={addPinText}>pin</button>
+                        </div>
+
+                        <div className="bc-tags">
+                            {if len(docTitles) == 0 and len(pinnedTitles) == 0 {
+                                <span className="bc-tag is-empty">no sources yet</span>
+                            }}
+                            {for t in pinnedTitles {
+                                <span className="bc-tag is-pin" key={"p" + str(t)}>{str(t)}</span>
+                            }}
+                            {for t in docTitles {
+                                <span className="bc-tag is-rag" key={"r" + str(t)}>{str(t)}</span>
+                            }}
+                        </div>
+                        {if syncMsg != "" { <p className="bc-note">{syncMsg}</p> }}
+                    </div>
+                </section>
+
+                <section className="bc-panel">
+                    <div className="bc-panel-head">
                         <h2>standing summary</h2>
-                        <span className="bc-rail-spacer"></span>
+                        <span className="bc-grow"></span>
                         <button className={"bc-btn is-on" if voiceOn else "bc-btn"} onClick={toggleVoice}>{"voice on" if voiceOn else "voice off"}</button>
                         <button className="bc-btn" onClick={forceSummary}>revise</button>
-                        <button className="bc-btn" onClick={endSession}>close + distill</button>
+                        <button className="bc-btn" onClick={endSession}>close</button>
                     </div>
-                    <div className="bc-module-body">
+                    <div className="bc-panel-body">
                         {if summary.strip() == "" {
                             <p className="bc-empty">
-                                Holding. The summary revises only on a new finding, a status change, or a correction — never on rewording.
+                                Holding. It revises only on a new finding, a status change, or a correction — never on rewording.
                             </p>
                         }}
-                        {if summary.strip() != "" {
-                            <pre className="bc-summary">{summary}</pre>
-                        }}
+                        {if summary.strip() != "" { <pre className="bc-summary">{summary}</pre> }}
                     </div>
                 </section>
 
-                <section className="bc-module">
-                    <div className="bc-module-head">
+                <section className="bc-panel">
+                    <div className="bc-panel-head">
                         <h2>verdicts</h2>
-                        <span className="bc-rail-spacer"></span>
-                        <span className="bc-time">{str(len(answers)) + " answered · " + str(len(actions)) + " acted"}</span>
+                        <span className="bc-grow"></span>
+                        <span className="bc-meta">{str(len(answers)) + " answered · " + str(len(actions)) + " acted"}</span>
                     </div>
-                    <div className="bc-module-body bc-scroll bc-verdict-scroll">
+                    <div className="bc-panel-body bc-scroll bc-verdict-h">
                         {if len(answers) == 0 and len(actions) == 0 {
                             <p className="bc-empty">
                                 Say <code>Hey Jac, …</code> in the meeting. Every answer arrives with the source it came from.
@@ -347,19 +479,19 @@ def:pub app -> JsxElement {
                 </section>
 
                 {if len(memory) > 0 {
-                    <section className="bc-module">
-                        <div className="bc-module-head">
+                    <section className="bc-panel">
+                        <div className="bc-panel-head">
                             <h2>carried forward</h2>
-                            <span className="bc-rail-spacer"></span>
+                            <span className="bc-grow"></span>
                             <SourceChip source="PRIOR_MEETING"/>
                         </div>
-                        <div className="bc-module-body">
+                        <div className="bc-panel-body">
                             {for m in memory {
-                                <div className="bc-memory-block" key={str(m["started_at"])}>
-                                    <div className="bc-memory-when">{str(m["started_at"])}</div>
-                                    <pre className="bc-memory-text">{str(m["bullets"])}</pre>
+                                <div className="bc-mem" key={str(m["started_at"])}>
+                                    <div className="bc-mem-when">{str(m["started_at"])}</div>
+                                    <pre className="bc-mem-text">{str(m["bullets"])}</pre>
                                     {if str(m["decisions"]).strip() != "" {
-                                        <pre className="bc-memory-text">{"decisions:" + _NL + str(m["decisions"])}</pre>
+                                        <pre className="bc-mem-text">{"decisions:" + _NL + str(m["decisions"])}</pre>
                                     }}
                                 </div>
                             }}
