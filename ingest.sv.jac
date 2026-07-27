@@ -323,6 +323,45 @@ walker:pub StartMeeting {
 }
 
 
+walker:pub ForgetProject {
+    """Delete a meeting and everything under it.
+
+    Rehearsing creates junk projects, and a switcher full of "test", "smoke"
+    and typos is the kind of thing an audience reads instead of your demo.
+    Deleting a node cascades to its edges, so removing the series takes its
+    sessions, utterances, answers and docs with it. The workspace folder on
+    disk is deliberately left alone - transcripts and context files are the
+    user's, not ours to bin.
+    """
+
+    has series: str,
+        reports: list[dict[any]] = [];
+
+    can at_root with Root entry {
+        for s in [root -->[?:MeetingSeries]] {
+            if s.name != self.series {
+                continue;
+            }
+            for sess in [s -->[?:Session]] {
+                for u in [sess -->[?:Utterance]] { del u; }
+                for a in [sess -->[?:Answer]] { del a; }
+                for a in [sess -->[?:Action]] { del a; }
+                del sess;
+            }
+            for d in [s -->[?:Doc]] {
+                for c in [d -->[?:DocChunk]] { del c; }
+                del d;
+            }
+            for m in [s -->[?:SessionSummary]] { del m; }
+            del s;
+            report {"ok": True, "forgot": self.series};
+            disengage;
+        }
+        report {"ok": False, "error": f"No meeting called '{self.series}'."};
+    }
+}
+
+
 walker:pub Projects {
     """Every project on the graph, newest activity first - the switcher's data."""
 

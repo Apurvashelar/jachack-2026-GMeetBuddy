@@ -16,7 +16,7 @@ import from react { useEffect }
 
 import from .components.Cards { AnswerCard, ActionCard, FeedLine, SourceChip, DropTile }
 
-sv import from ingest { Tick, SyncWorkspace, ImportOrgDocs, AddSource, StartMeeting, Projects }
+sv import from ingest { Tick, SyncWorkspace, ImportOrgDocs, AddSource, StartMeeting, Projects, ForgetProject }
 sv import from answer { EndSession, Summarize }
 sv import from botctl { StartBot, StopBot }
 
@@ -285,6 +285,20 @@ def:pub app -> JsxElement {
         await openProject(projectDraft);
     }
 
+    """Delete the open meeting. Rehearsal junk should not be on screen."""
+    async def forgetProject(e: MouseEvent) -> None {
+        if project == "" { return; }
+        gone = project;
+        root spawn ForgetProject(series=gone);
+        project = "";
+        projectDraft = "";
+        rememberProject("");
+        utterances = []; answers = []; actions = []; memory = [];
+        summary = ""; docTitles = []; pinnedTitles = []; total = 0;
+        botMsg = "Forgot " + gone + ".";
+        await refreshProjects();
+    }
+
     """Point Backchannel at a meeting: fresh session, then send the bot.
 
     Starting a meeting always opens a NEW session, so the feed and the counters
@@ -437,6 +451,9 @@ def:pub app -> JsxElement {
                                 placeholder="Meeting name — e.g. Payments Standup"
                             />
                             <button className="bc-btn" onClick={switchProject}>open</button>
+                            {if ready {
+                                <button className="bc-btn is-danger" onClick={forgetProject}>forget</button>
+                            }}
                         </div>
                         <div className="bc-row">
                             <input
