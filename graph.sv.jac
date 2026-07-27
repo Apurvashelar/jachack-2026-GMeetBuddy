@@ -82,6 +82,23 @@ node SessionSummary {
 }
 
 
+node BotRequest {
+    """A queued "go join this meeting" instruction.
+
+    A hosted brain has no display, so it cannot run a headed Chromium itself.
+    Instead it parks the request here and a local ears agent - running on a
+    laptop that DOES have a screen - claims it and does the joining. The brain
+    stays wherever it is deployed; only the browser has to be near a human.
+    """
+
+    has series: str,
+        meet_url: str,
+        status: str = "pending",
+        created_at: int = 0,
+        claimed_at: int = 0;
+}
+
+
 node Doc {
     """A grounding document for a series.
 

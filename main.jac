@@ -8,11 +8,11 @@ import from graph {
     MeetingSeries, Session, Utterance, Answer, Action, Doc, DocChunk, SessionSummary
 }
 
-import from ingest { IngestChunk, Tick, LoadDoc, SyncWorkspace, ImportOrgDocs, AddSource }
+import from ingest { IngestChunk, Tick, LoadDoc, SyncWorkspace, ImportOrgDocs, AddSource, StartMeeting, Projects }
 
 import from answer { AnswerQuestion, ExecuteAction, EndSession, Summarize }
 
-import from botctl { StartBot, StopBot }
+import from botctl { StartBot, StopBot, NextBotRequest, CancelBotRequests }
 
 import from slashcmd { SlackCommand }
 

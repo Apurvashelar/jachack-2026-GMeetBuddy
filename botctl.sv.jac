@@ -13,6 +13,8 @@ reloads.
 import os;
 import subprocess;
 
+import from graph { BotRequest, now_ms }
+
 
 glob PID_FILE: str = ".jac/bot.pid";
 glob LOG_FILE: str = ".jac/bot.log";
@@ -110,15 +112,6 @@ walker:pub StartBot {
         reports: list[dict[any]] = [];
 
     can run with Root entry {
-        blocked = bot_capability();
-        if blocked != "" {
-            report {"ok": False, "error": blocked};
-            disengage;
-        }
-        if bot_running() {
-            report {"ok": False, "error": f"A bot is already running (pid {bot_pid()}). Stop it first."};
-            disengage;
-        }
         url = self.meet_url.strip();
         if "meet.google.com" not in url {
             report {"ok": False, "error": "That does not look like a Google Meet URL."};
@@ -128,6 +121,28 @@ walker:pub StartBot {
             url = "https://" + url;
         }
 
+        blocked = bot_capability();
+        if blocked != "" {
+            # No display here (a hosted deploy). Queue it for a local agent
+            # instead of failing - `python3 ears/bot.py --agent` on any laptop
+            # will pick it up and join on this brain's behalf.
+            for old in [root -->[?:BotRequest]] {
+                if old.status == "pending" {
+                    del old;
+                }
+            }
+            root ++> BotRequest(
+                series=self.series, meet_url=url,
+                status="pending", created_at=now_ms()
+            );
+            report {"ok": True, "queued": True,
+                    "note": "This server has no display, so the join is QUEUED. On a laptop, run:  python3 ears/bot.py --agent --brain " + os.environ.get("BC_PUBLIC_URL", "<this-app-url>") + "   — it will pick this up and join for you."};
+            disengage;
+        }
+        if bot_running() {
+            report {"ok": False, "error": f"A bot is already running (pid {bot_pid()}). Stop it first."};
+            disengage;
+        }
         try {
             logfh = open(LOG_FILE, "w");
             proc = subprocess.Popen(
@@ -181,4 +196,58 @@ walker:pub StopBot {
         }
         report {"ok": True, "stopped": pid};
     }
+}
+
+
+walker:pub NextBotRequest {
+    """A local ears agent asks: is there a meeting for me to join?
+
+    Returns the oldest pending request and marks it claimed, so two agents
+    running at once cannot both barge into the same call.
+    """
+
+    has agent: str = "local",
+        reports: list[dict[any]] = [];
+
+    can run with Root entry {
+        for req in [root -->[?:BotRequest]] {
+            if req.status != "pending" {
+                continue;
+            }
+            req.status = "claimed";
+            req.claimed_at = now_ms();
+            report {"ok": True, "found": True, "series": req.series, "meet_url": req.meet_url};
+            disengage;
+        }
+        report {"ok": True, "found": False};
+    }
+}
+
+
+walker:pub CancelBotRequests {
+    """Drop anything still queued - the dashboard's stop button when the join
+    never got claimed by an agent."""
+
+    has reports: list[dict[any]] = [];
+
+    can run with Root entry {
+        dropped = 0;
+        for req in [root -->[?:BotRequest]] {
+            del req;
+            dropped += 1;
+        }
+        report {"ok": True, "dropped": dropped};
+    }
+}
+
+
+"""How many joins are waiting for a local agent to pick them up."""
+def pending_requests -> int {
+    n = 0;
+    for req in [root -->[?:BotRequest]] {
+        if req.status == "pending" {
+            n += 1;
+        }
+    }
+    return n;
 }

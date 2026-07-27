@@ -16,12 +16,40 @@ import from react { useEffect }
 
 import from .components.Cards { AnswerCard, ActionCard, FeedLine, SourceChip, DropTile }
 
-sv import from ingest { Tick, SyncWorkspace, ImportOrgDocs, AddSource }
+sv import from ingest { Tick, SyncWorkspace, ImportOrgDocs, AddSource, StartMeeting, Projects }
 sv import from answer { EndSession, Summarize }
 sv import from botctl { StartBot, StopBot }
 
 
-glob SERIES_NAME: str = "Research Weekly Sync";
+# The project the dashboard is showing. Module-level and mirrored to
+# localStorage for two reasons: a `has` field read inside the polling interval
+# would be a stale closure and would keep fetching whichever project was
+# selected when the interval was created, and a mid-demo refresh must not throw
+# you back to a different meeting.
+glob activeProject: str = "";
+
+"""Remember the project across reloads."""
+def rememberProject(name: str) -> None {
+    activeProject = name;
+    try {
+        localStorage.setItem("bc_project", name);
+    } except Exception as e {
+        console.log("[bc] could not persist project", e);
+    }
+}
+
+"""The project to show on first paint."""
+def recallProject -> str {
+    try {
+        saved = localStorage.getItem("bc_project");
+        if saved {
+            return String(saved);
+        }
+    } except Exception as e {
+        console.log("[bc] could not read stored project", e);
+    }
+    return "";
+}
 
 # Module-level, deliberately: a `has` field read inside the polling interval
 # would be a stale closure, and we only need "have I already said this aloud".
@@ -68,17 +96,25 @@ def:pub app -> JsxElement {
         connected: bool = False,
         meetUrl: str = "",
         botRunning: bool = False,
+        botQueued: int = 0,
         botLog: str = "",
         botMsg: str = "",
         syncMsg: str = "",
         ragUrl: str = "",
         pinUrl: str = "",
         pinText: str = "",
-        overTile: str = "";
+        overTile: str = "",
+        project: str = "",
+        projectDraft: str = "",
+        knownProjects: list[any] = [];
 
     async def poll -> None {
+        if activeProject == "" {
+            connected = True;
+            return;
+        }
         try {
-            result = root spawn Tick(series=SERIES_NAME, after_seq=-1);
+            result = root spawn Tick(series=activeProject, after_seq=-1);
             if not result.reports or len(result.reports) == 0 {
                 return;
             }
@@ -97,6 +133,7 @@ def:pub app -> JsxElement {
             total = int(r["total"]);
             live = bool(r["live"]);
             botRunning = bool(r["bot_running"]);
+            botQueued = int(r["bot_queued"]);
             botLog = str(r["bot_log"]);
 
             for a in (r["answers"] as list[any]) {
@@ -115,7 +152,7 @@ def:pub app -> JsxElement {
 
     """Send one source to the brain and report what happened."""
     async def submitSource(mode: str, url: str, text: str) -> None {
-        result = root spawn AddSource(series=SERIES_NAME, mode=mode, url=url, text=text, title="briefing");
+        result = root spawn AddSource(series=project, mode=mode, url=url, text=text, title="briefing");
         if result.reports and len(result.reports) > 0 {
             r: any = result.reports[0];
             if bool(r["ok"]) {
@@ -166,7 +203,7 @@ def:pub app -> JsxElement {
                 continue;
             }
             result = root spawn AddSource(
-                series=SERIES_NAME, mode=mode, filename=name, content_b64=b64
+                series=project, mode=mode, filename=name, content_b64=b64
             );
             if result.reports and len(result.reports) > 0 {
                 r: any = result.reports[0];
@@ -214,14 +251,65 @@ def:pub app -> JsxElement {
         await uploadFiles(mode, e.dataTransfer.files);
     }
 
+    """Load the list of projects for the switcher."""
+    async def refreshProjects -> None {
+        result = root spawn Projects();
+        if result.reports and len(result.reports) > 0 {
+            r: any = result.reports[0];
+            knownProjects = r["projects"] as list[any];
+        }
+    }
+
+    """Switch the whole dashboard to a project without touching its data."""
+    async def openProject(name: str) -> None {
+        clean = name.strip();
+        if clean == "" { return; }
+        project = clean;
+        projectDraft = clean;
+        rememberProject(clean);
+        # Answers already spoken belong to the project we just left.
+        spokenAnswers = [];
+        utterances = [];
+        answers = [];
+        actions = [];
+        memory = [];
+        summary = "";
+        docTitles = [];
+        pinnedTitles = [];
+        total = 0;
+        await poll();
+        await refreshProjects();
+    }
+
+    async def switchProject(e: MouseEvent) -> None {
+        await openProject(projectDraft);
+    }
+
+    """Point Backchannel at a meeting: fresh session, then send the bot.
+
+    Starting a meeting always opens a NEW session, so the feed and the counters
+    begin at zero rather than showing whatever the last meeting left behind."""
     async def sendBot(e: MouseEvent) -> None {
+        name = projectDraft.strip() if projectDraft.strip() != "" else project;
+        if name == "" { botMsg = "Name the meeting first."; return; }
         if meetUrl.strip() == "" { botMsg = "Paste a Google Meet link first."; return; }
-        botMsg = "Launching...";
-        result = root spawn StartBot(series=SERIES_NAME, meet_url=meetUrl);
+
+        botMsg = "Opening a clean session...";
+        project = name;
+        projectDraft = name;
+        rememberProject(name);
+        spokenAnswers = [];
+        utterances = []; answers = []; actions = []; summary = ""; total = 0;
+
+        root spawn StartMeeting(series=name);
+        botMsg = "Launching the bot...";
+        result = root spawn StartBot(series=name, meet_url=meetUrl);
         if result.reports and len(result.reports) > 0 {
             r: any = result.reports[0];
             botMsg = str(r["note"]) if bool(r["ok"]) else str(r["error"]);
         }
+        await poll();
+        await refreshProjects();
     }
 
     async def stopTheBot(e: MouseEvent) -> None {
@@ -234,7 +322,7 @@ def:pub app -> JsxElement {
 
     async def syncDocs(e: MouseEvent) -> None {
         syncMsg = "Rescanning the workspace folder...";
-        result = root spawn SyncWorkspace(series=SERIES_NAME);
+        result = root spawn SyncWorkspace(series=project);
         if result.reports and len(result.reports) > 0 {
             r: any = result.reports[0];
             syncMsg = ("Loaded " + str(len(r["loaded"] as list[any])) + " source(s)") if bool(r["ok"]) else str(r["error"]);
@@ -243,24 +331,32 @@ def:pub app -> JsxElement {
 
     async def importOrgDocs(e: MouseEvent) -> None {
         syncMsg = "Importing from the repo...";
-        result = root spawn ImportOrgDocs(series=SERIES_NAME);
+        result = root spawn ImportOrgDocs(series=project);
         if result.reports and len(result.reports) > 0 {
             r: any = result.reports[0];
             syncMsg = ("Imported " + str(len(r["loaded"] as list[any])) + " repo doc(s)") if bool(r["ok"]) else str(r["error"]);
         }
     }
 
-    async def forceSummary(e: MouseEvent) -> None { root spawn Summarize(series=SERIES_NAME, force=True); }
-    async def endSession(e: MouseEvent) -> None { root spawn EndSession(series=SERIES_NAME); }
+    async def forceSummary(e: MouseEvent) -> None { root spawn Summarize(series=project, force=True); }
+    async def endSession(e: MouseEvent) -> None { root spawn EndSession(series=project); }
     def toggleVoice(e: MouseEvent) -> None { voiceOn = not voiceOn; }
 
     useEffect(lambda {
+        saved = recallProject();
+        if saved != "" {
+            project = saved;
+            projectDraft = saved;
+            activeProject = saved;
+        }
         poll();
+        refreshProjects();
         interval = setInterval(lambda { poll(); }, 2000);
         return lambda { clearInterval(interval); };
     }, []);
 
-    hearing = connected and live;
+    hearing = connected and live and project != "";
+    ready = project != "";
 
     return <div className="bc-shell">
         <header className="bc-hero">
@@ -268,7 +364,7 @@ def:pub app -> JsxElement {
                 <div className="bc-mark-glyph">B</div>
                 <div className="bc-mark-text">
                     <h1>Backchannel</h1>
-                    <p>{SERIES_NAME}</p>
+                    <p>{project if ready else "no meeting selected"}</p>
                 </div>
             </div>
 
@@ -279,7 +375,7 @@ def:pub app -> JsxElement {
             </div>
 
             <span className={"bc-status is-live" if hearing else "bc-status is-off"}>
-                <b></b>{"listening" if hearing else ("standby" if connected else "no signal")}
+                <b></b>{"listening" if hearing else ("standby" if ready else "idle")}
             </span>
         </header>
 
@@ -300,9 +396,14 @@ def:pub app -> JsxElement {
                     <span className="bc-meta">{startedAt if startedAt != "" else "no session"}</span>
                 </div>
                 <div className="bc-panel-body bc-scroll bc-feed-h">
-                    {if len(utterances) == 0 {
+                    {if not ready {
                         <p className="bc-empty">
-                            Nothing on the wire yet. Send the bot into a meeting above, or run <code>jac run replay.jac</code> to feed it a scripted one.
+                            Name a meeting and paste its Google Meet link, then press <code>start meeting</code>. Backchannel opens a clean session and sends the bot to the door — someone in the call has to admit it.
+                        </p>
+                    }}
+                    {if ready and len(utterances) == 0 {
+                        <p className="bc-empty">
+                            Session open, nothing heard yet. Once the bot is admitted and captions are on, everything said here appears live.
                         </p>
                     }}
                     {for u in utterances {
@@ -323,20 +424,30 @@ def:pub app -> JsxElement {
                         <h2>meeting</h2>
                         <span className="bc-grow"></span>
                         <span className={"bc-status is-live" if botRunning else "bc-status is-off"}>
-                            <b></b>{"bot in call" if botRunning else "bot idle"}
+                            <b></b>{"bot in call" if botRunning else ("waiting for agent" if botQueued > 0 else "bot idle")}
                         </span>
                     </div>
                     <div className="bc-panel-body">
+                        <div className="bc-row" style={{"marginBottom": "0.4rem"}}>
+                            <input
+                                className="bc-input"
+                                type="text"
+                                value={projectDraft}
+                                onChange={lambda (e: ChangeEvent) { projectDraft = e.target.value; }}
+                                placeholder="Meeting name — e.g. Payments Standup"
+                            />
+                            <button className="bc-btn" onClick={switchProject}>open</button>
+                        </div>
                         <div className="bc-row">
                             <input
                                 className="bc-input"
                                 type="text"
                                 value={meetUrl}
                                 onChange={lambda (e: ChangeEvent) { meetUrl = e.target.value; }}
-                                placeholder="meet.google.com/xxx-xxxx-xxx"
+                                placeholder="Google Meet link"
                             />
                             {if not botRunning {
-                                <button className="bc-btn is-primary" onClick={sendBot}>send bot</button>
+                                <button className="bc-btn is-primary" onClick={sendBot}>start meeting</button>
                             }}
                             {if botRunning {
                                 <button className="bc-btn is-danger" onClick={stopTheBot}>stop</button>
@@ -344,6 +455,18 @@ def:pub app -> JsxElement {
                         </div>
                         {if botMsg != "" { <p className="bc-note">{botMsg}</p> }}
                         {if botRunning and botLog != "" { <pre className="bc-log">{botLog}</pre> }}
+                        {if len(knownProjects) > 0 {
+                            <div className="bc-tags">
+                                {for p in knownProjects {
+                                    <button
+                                        key={str(p["name"])}
+                                        className={"bc-tag is-pin" if str(p["name"]) == project else "bc-tag"}
+                                        style={{"cursor": "pointer"}}
+                                        onClick={lambda (e: MouseEvent) { openProject(str(p["name"])); }}
+                                    >{str(p["name"]) + " · " + str(p["captions"])}</button>
+                                }}
+                            </div>
+                        }}
                     </div>
                 </section>
 
@@ -414,7 +537,7 @@ def:pub app -> JsxElement {
 
                         <div className="bc-tags">
                             {if len(docTitles) == 0 and len(pinnedTitles) == 0 {
-                                <span className="bc-tag is-empty">no sources yet</span>
+                                <span className="bc-tag is-empty">no sources for this meeting yet</span>
                             }}
                             {for t in pinnedTitles {
                                 <span className="bc-tag is-pin" key={"p" + str(t)}>{str(t)}</span>
@@ -454,7 +577,7 @@ def:pub app -> JsxElement {
                     <div className="bc-panel-body bc-scroll bc-verdict-h">
                         {if len(answers) == 0 and len(actions) == 0 {
                             <p className="bc-empty">
-                                Say <code>Hey Jac, …</code> in the meeting. Every answer arrives with the source it came from.
+                                Say <code>Hey Jac, …</code> out loud in the meeting. Every answer arrives labelled with the source it came from — or says plainly that it does not know.
                             </p>
                         }}
                         {for a in actions {

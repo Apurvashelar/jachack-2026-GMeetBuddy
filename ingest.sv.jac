@@ -18,7 +18,7 @@ import from workspace { list_workspace_docs, workspace_dir, chunk_text }
 import from slackbridge { slack_poll }
 import from adapters { fetch_repo_docs }
 import from sources { find_urls, ingest_url, ingest_text, ingest_blob }
-import from botctl { bot_running, bot_log_tail }
+import from botctl { bot_running, bot_log_tail, pending_requests }
 
 
 # Ordered LONGEST FIRST. "hey jac" is a prefix of "hey jack", so a short-first
@@ -255,6 +255,7 @@ walker:pub Tick {
             "pinned_titles": self.pinned_titles,
             "doc_chunks": self.doc_chunks,
             "bot_running": bot_running(),
+            "bot_queued": pending_requests(),
             "bot_log": bot_log_tail(2),
             "workspace": workspace_dir(self.series)
         };
@@ -286,6 +287,62 @@ def reload_docs(series: MeetingSeries) -> list[str] {
         loaded.append(fname);
     }
     return loaded;
+}
+
+
+walker:pub StartMeeting {
+    """Open a clean session for a project, closing whatever was live before.
+
+    This is what makes the tool demoable: pointing it at a new meeting must not
+    leave the previous meeting's captions on screen. Any live session is closed
+    and a fresh one opened, so the feed and counters start from zero.
+    """
+
+    has series: str,
+        reports: list[dict[any]] = [];
+
+    can at_root with Root entry {
+        visit get_series(self.series);
+    }
+
+    can at_series with MeetingSeries entry {
+        closed = 0;
+        for sess in [here -->[?:Session]] {
+            if sess.live {
+                sess.live = False;
+                closed += 1;
+            }
+        }
+        fresh = get_live_session(here);
+        loaded = reload_docs(here);
+        report {
+            "ok": True, "series": self.series, "closed": closed,
+            "started_at": fresh.started_at, "docs": len(loaded)
+        };
+    }
+}
+
+
+walker:pub Projects {
+    """Every project on the graph, newest activity first - the switcher's data."""
+
+    has reports: list[dict[any]] = [];
+
+    can at_root with Root entry {
+        rows: list[dict[any]] = [];
+        for s in [root -->[?:MeetingSeries]] {
+            total = 0;
+            live = False;
+            for sess in [s -->[?:Session]] {
+                total += sess.next_seq;
+                if sess.live {
+                    live = True;
+                }
+            }
+            rows.append({"name": s.name, "captions": total, "live": live});
+        }
+        report {"projects": rows};
+    }
 }
 
 

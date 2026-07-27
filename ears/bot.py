@@ -496,6 +496,47 @@ def enable_captions(page):
         return False
 
 
+def agent_mode(args):
+    """Be the hands of a brain that has no screen.
+
+    Polls the brain for a queued join, then runs a normal capture session for
+    it, then goes back to waiting. This is what makes a hosted deployment fully
+    usable: the dashboard can live anywhere, while the browser that actually
+    joins the call runs on a laptop with a display and a signed-in profile.
+    """
+    brain = args.brain.rstrip("/")
+    print(f"  [agent] watching {brain} for meetings to join. Ctrl-C to stop.")
+    while True:
+        try:
+            resp = requests.post(
+                f"{brain}/walker/NextBotRequest", json={"agent": "local"}, timeout=30
+            )
+            reports = (resp.json().get("data") or {}).get("reports") or []
+            job = reports[0] if reports else {}
+        except Exception as exc:
+            print(f"  [agent] cannot reach the brain: {exc}")
+            time.sleep(8)
+            continue
+
+        if not job.get("found"):
+            time.sleep(4)
+            continue
+
+        series = job.get("series", "meeting")
+        url = job.get("meet_url", "")
+        print(f"  [agent] picked up '{series}' -> {url}")
+
+        job_args = argparse.Namespace(**vars(args))
+        job_args.agent = False
+        job_args.meet_url = url
+        job_args.series = series
+        try:
+            run_session(job_args)
+        except Exception as exc:
+            print(f"  [agent] session ended with an error: {exc}")
+        print("  [agent] back to watching for the next meeting.")
+
+
 def login_mode(user_data_dir):
     """Open the bot's OWN browser profile on Google sign-in and let the human
     log in manually. Google refuses anonymous knockers on meetings hosted by
@@ -538,7 +579,8 @@ def login_mode(user_data_dir):
 
 def main():
     ap = argparse.ArgumentParser(description="Backchannel Google Meet capture bot")
-    ap.add_argument("--meet-url", required=True)
+    ap.add_argument("--meet-url", default="",
+                    help="the meeting to join. Omit in --agent mode: the brain says which.")
     ap.add_argument("--series", default="Research Weekly Sync")
     ap.add_argument("--brain", default="http://localhost:8000")
     ap.add_argument("--name", default="Backchannel")
@@ -556,6 +598,11 @@ def main():
                          "headless because it runs headful Chrome inside Xvfb; "
                          "true headless mode is MORE detectable, so we stay "
                          "headful and just get the window out of the way.")
+    ap.add_argument("--agent", action="store_true",
+                    help="AGENT MODE: poll a (possibly hosted) brain for queued "
+                         "join requests and handle them on this machine. Use "
+                         "this when Backchannel is deployed somewhere with no "
+                         "display - the brain stays hosted, the browser runs here.")
     ap.add_argument("--login", action="store_true",
                     help="open a browser to sign the bot into a Google account "
                          "ONCE (needed to join meetings hosted by personal "
@@ -566,6 +613,17 @@ def main():
     if args.login:
         return login_mode(args.user_data_dir)
 
+    if args.agent:
+        return agent_mode(args)
+
+    if not args.meet_url:
+        ap.error("--meet-url is required unless you pass --agent or --login")
+
+    return run_session(args)
+
+
+def run_session(args):
+    """One capture session: join, scrape captions, deliver answers, leave."""
     sender = BrainSender(args.brain, args.series)
     sender.start()
 
