@@ -58,9 +58,13 @@ IN_CALL_MARKER = [
 ]
 
 CAPTIONS_BUTTON = [
+    "button[aria-label*='Turn on captions' i]",
+    "div[role='button'][aria-label*='Turn on captions' i]",
     "[aria-label*='Turn on captions' i]",
-    "[aria-label*='captions' i]",
-    "button[jsname][aria-label*='caption' i]",
+    "[data-tooltip*='captions' i]",
+    "button[aria-label*='caption' i]",
+    "div[role='button'][aria-label*='caption' i]",
+    "[aria-label*='subtitles' i]",
 ]
 
 # The caption region. Order matters: the most specific container first, so the

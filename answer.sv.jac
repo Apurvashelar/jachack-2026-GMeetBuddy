@@ -298,11 +298,16 @@ walker:pub Summarize {
 
 """Route one wake-phrase ask and run it. Called from the ingest inlet, which is
 why the trigger path costs nothing until a human actually says the phrase."""
-def handle_wake(session: Session, ask: str, seq: int, said: str) -> dict[any] {
+def handle_wake(session: Session, ask: str, seq: int, said: str,
+                same_breath: bool = False) -> dict[any] {
     if ask.strip() == "" {
         return {"kind": "ignored", "reason": "empty ask"};
     }
-    if now_ms() - session.last_answer_ms < ECHO_GUARD_MS {
+    # The echo guard stops the bot answering its own spoken reply after the
+    # room mic picks it up. It must NOT stop a human who asked three questions
+    # in one breath - those all arrive inside a single caption block, so
+    # `same_breath` waives the guard for the second and later asks in it.
+    if not same_breath and now_ms() - session.last_answer_ms < ECHO_GUARD_MS {
         return {"kind": "ignored", "reason": "echo guard - bot just spoke"};
     }
 

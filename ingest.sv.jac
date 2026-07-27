@@ -24,23 +24,82 @@ import from botctl { bot_running, bot_log_tail, pending_requests }
 # Ordered LONGEST FIRST. "hey jac" is a prefix of "hey jack", so a short-first
 # scan would match "hey jac" inside "Hey Jack, how are you?" and leave the ask
 # as "k, how are you?" - which is exactly the bug this ordering prevents.
+# Longest first, because "hey jac" is a prefix of "hey jack". The misheard
+# variants are here because Google's ASR reliably renders "Hey Jac" as "Hey
+# Jeff", "Okay Jack" or "Hey Jack" depending on accent and mic - and a wake
+# word that only works when the transcriber cooperates is not a wake word.
 glob WAKE_PHRASES: list[str] = [
-    "hey jacques", "hey jack", "hey check", "hey jac", "hey jak", "a jack"
+    "hey jacques", "okay jack", "okay jac", "hey jack", "hey jeff", "hey check",
+    "ok jack", "ok jac", "hey jac", "hey jak", "a jack", "hey jax"
 ];
 
-"""Deterministic wake-phrase detector.
+"""Every wake phrase in a block of text, with the ask that follows each.
 
-Returns the ask (everything after the matched phrase) or "" when the line is
-not addressed to Backchannel. No model, no network, no cost."""
-def detect_wake(text: str) -> str {
+Google Meet does not give one caption per sentence - it streams a whole turn
+into a single block that keeps growing, so one block routinely contains three
+questions. Detecting only the first would silently drop the rest, which is
+exactly the bug this replaces. Each ask is cut at the next wake phrase or at
+the question mark, so "Hey Jac, what is X? Hey Jac, what is Y?" yields two
+clean questions rather than one run-on.
+
+No model, no network, no cost - this is still just a lowercase scan."""
+def detect_wake_all(text: str) -> list[str] {
     lowered = text.lower();
+    # Collect every (position, phrase-length) hit across all spellings.
+    hits: list[tuple] = [];
     for phrase in WAKE_PHRASES {
-        if phrase in lowered {
-            idx = lowered.index(phrase);
-            return text[idx + len(phrase):].strip(" ,.?!:;-");
+        start = 0;
+        while True {
+            if phrase not in lowered[start:] {
+                break;
+            }
+            idx = lowered.index(phrase, start);
+            hits.append((idx, len(phrase)));
+            start = idx + len(phrase);
         }
     }
-    return "";
+    if len(hits) == 0 {
+        return [];
+    }
+    hits.sort();
+
+    # Drop overlapping hits: "hey jack" and "hey jac" both match the same words.
+    clean: list[tuple] = [];
+    last_end: int = -1;
+    for h in hits {
+        start_at: int = int(h[0]);
+        span_len: int = int(h[1]);
+        if start_at >= last_end {
+            clean.append(h);
+            last_end = start_at + span_len;
+        }
+    }
+
+    asks: list[str] = [];
+    for (i, h) in enumerate(clean) {
+        begin: int = int(h[0]) + int(h[1]);
+        stop: int = len(text);
+        if i + 1 < len(clean) {
+            stop = int(clean[i + 1][0]);
+        }
+        span = text[begin:stop];
+        # A question mark ends the ask - anything after it is the next thought.
+        if "?" in span {
+            span = span[:span.index("?") + 1];
+        }
+        cleaned = span.strip(" ,.?!:;-");
+        if cleaned != "" {
+            asks.append(cleaned);
+        }
+    }
+    return asks;
+}
+
+
+"""The first ask in a block, or "" - kept for callers that want just one."""
+def detect_wake(text: str) -> str {
+    asks = detect_wake_all(text);
+    return asks[0] if len(asks) > 0 else "";
 }
 
 
@@ -142,13 +201,33 @@ walker:pub IngestChunk {
         # what is" -> ...). Answering each fragment would fire several half-
         # questions per sentence, so we wait for the ears to mark the caption
         # final (text stopped changing) and answer each caption exactly once.
+        # The trigger path. A growing caption block can accumulate several
+        # questions, so we track HOW MANY asks this block has already been
+        # answered for rather than a single done/not-done flag - otherwise
+        # question two and three in the same breath are silently dropped.
         ask = "";
         routed: dict[any] = {};
-        if changed and utt is not None and self.final and not utt.wake_done {
-            ask = detect_wake(utt.text);
-            if ask != "" {
+        if changed and utt is not None {
+            asks = detect_wake_all(utt.text);
+            while utt.wake_count < len(asks) {
+                candidate = asks[utt.wake_count];
+                # Only answer once the ask reads as finished: a question mark,
+                # a later ask already started behind it, or the ears calling
+                # the caption final.
+                settled = candidate.endswith("?")
+                          or utt.wake_count < len(asks) - 1
+                          or self.final
+                          or len(candidate.split()) >= 6;
+                if not settled {
+                    break;
+                }
+                # Everything after the first ask in a block came from the same
+                # human breath, so it bypasses the echo guard.
+                same_breath = utt.wake_count > 0;
+                utt.wake_count += 1;
                 utt.wake_done = True;
-                routed = handle_wake(here, ask, utt.seq, utt.text);
+                ask = candidate;
+                routed = handle_wake(here, candidate, utt.seq, utt.text, same_breath);
             }
         }
         report {

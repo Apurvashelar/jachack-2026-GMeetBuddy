@@ -44,7 +44,8 @@ node Utterance {
         version: int = 0,
         seq: int = 0,
         ts_ms: int = 0,
-        wake_done: bool = False;
+        wake_done: bool = False,
+        wake_count: int = 0;
 }
 
 

@@ -481,19 +481,68 @@ def join_meet(page, meet_url, bot_name):
     return "timeout"
 
 
+def captions_visible(page):
+    """Is a caption region actually present in the DOM right now?"""
+    for sel in locators.CAPTION_REGIONS:
+        try:
+            if page.query_selector(sel):
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def enable_captions(page):
+    """Turn captions on, and KEEP TRYING.
+
+    Meet moves this control behind an overflow menu depending on window width
+    and account type, and the 'c' shortcut silently does nothing when focus is
+    in the wrong place. So: click, verify a caption region appeared, and if not,
+    try the next route. Verification is the part that matters - the old code
+    reported success after pressing a key that may have gone nowhere.
+    """
     time.sleep(2)
-    if try_click(page, locators.CAPTIONS_BUTTON, timeout=4000, label="captions on"):
-        time.sleep(1.5)
+
+    for attempt in range(3):
+        if captions_visible(page):
+            print("  [bot] captions are ON")
+            return True
+
+        if try_click(page, locators.CAPTIONS_BUTTON, timeout=2500, label="captions button"):
+            time.sleep(2)
+            if captions_visible(page):
+                print("  [bot] captions are ON")
+                return True
+
+        # The control is often hidden behind "More options".
+        for more in ["button[aria-label*='More options' i]", "[aria-label*='More options' i]"]:
+            try:
+                el = page.query_selector(more)
+                if el:
+                    el.click()
+                    time.sleep(1)
+                    try_click(page, locators.CAPTIONS_BUTTON, timeout=2000, label="captions (menu)")
+                    time.sleep(1.5)
+                    break
+            except Exception:
+                continue
+
+        if captions_visible(page):
+            print("  [bot] captions are ON")
+            return True
+
+        try:
+            page.keyboard.press("c")
+            time.sleep(2)
+        except Exception:
+            pass
+
+    if captions_visible(page):
         return True
-    # Keyboard shortcut is the fallback when the button is behind a menu.
-    try:
-        page.keyboard.press("c")
-        print("  [bot] pressed 'c' for captions")
-        time.sleep(1.5)
-        return True
-    except Exception:
-        return False
+
+    print("  [bot] !! COULD NOT TURN CAPTIONS ON AUTOMATICALLY.")
+    print("        Click the CC button in THIS Chrome window and capture starts.")
+    return False
 
 
 def agent_mode(args):
@@ -743,9 +792,26 @@ def run_session(args):
         watcher.start()
 
         print(f"  [bot] capturing (voice={args.voice}, chat={'off' if args.no_chat else 'on'}). Ctrl-C to stop.")
+        captions_ready = captions_visible(page)
+        if not captions_ready:
+            print("  [bot] waiting for captions - turn them on in this window and I will pick it up.")
+        last_retry = time.time()
         try:
             while True:
                 time.sleep(1)
+                # Someone may enable captions by hand after we joined; keep
+                # checking and reinstall the observer the moment they appear.
+                if not captions_ready:
+                    if captions_visible(page):
+                        captions_ready = True
+                        try:
+                            page.evaluate(OBSERVER_JS, locators.CAPTION_REGIONS)
+                            print("  [bot] captions detected - observer reinstalled, capturing now")
+                        except Exception as exc:
+                            print(f"  [bot] observer reinstall failed: {exc}")
+                    elif time.time() - last_retry > 15:
+                        last_retry = time.time()
+                        enable_captions(page)
                 # Deliver any answers the watcher found (main thread only -
                 # Playwright's sync API is not thread-safe).
                 while True:
